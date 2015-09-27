@@ -1,0 +1,16 @@
+[package]
+name = "minimax"
+version = "0.0.1"
+authors = [ "Samuel Fredrickson <samfredrickson@gmail.com>" ]
+description = "Generic implementations of Minimax."
+documentation = "http://kinghajj.github.io/doc/minimax-rs/"
+repository = "http://github.com/kinghajj/minimax-rs.git"
+readme = "README.md"
+keywords = ["ai", "game", "minimax", "negamax"]
+license = "MIT"
+
+[dependencies]
+rand = "0.3.*"
+
+[profile.test]
+opt-level = 3
