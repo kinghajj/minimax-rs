@@ -1,6 +1,6 @@
 # minimax-rs - Generic implementations of Minimax in Rust.
 
-[![Build Status](https://travis-ci.org/kinghajj/minimax-rs.svg?branch=master)](https://travis-ci.org/kinghajj/minimax-rs) [![Crates.io](https://img.shields.io/crates/v/minimax-rs.svg)](https://crates.io/crates/minimax-rs)
+[![Build Status](https://travis-ci.org/kinghajj/minimax-rs.svg?branch=master)](https://travis-ci.org/kinghajj/minimax-rs) [![Crates.io](https://img.shields.io/crates/v/minimax-rs.svg)](https://crates.io/crates/minimax)
 
 ## About
 
