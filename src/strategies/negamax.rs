@@ -41,7 +41,7 @@ impl<E: Evaluator> Negamax<E> {
         let mut best = Evaluation::Worst;
         for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
             m.apply(s);
-            let value = -self.negamax(s, depth + 1, -beta, -alpha, -p);
+            let value = -self.negamax(s, depth - 1, -beta, -alpha, -p);
             m.undo(s);
             best = max(best, value);
             alpha = max(alpha, value);
