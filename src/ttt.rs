@@ -50,9 +50,17 @@ impl From<Square> for interface::Player {
     }
 }
 
-#[derive(Clone, Default, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [Square; 9]
+}
+
+impl Default for Board {
+    fn default() -> Board {
+        Board {
+            squares: [Square::default(); 9]
+        }
+    }
 }
 
 impl Display for Board {
