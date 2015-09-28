@@ -77,8 +77,7 @@ pub trait Evaluator {
 
     /// Evaluate the state from the given player's persective.
     #[inline]
-    fn evaluate_for(s: &<Self::G as Game>::S, mw: Option<Winner>, p: Player)
-        -> Evaluation {
+    fn evaluate_for(s: &<Self::G as Game>::S, mw: Option<Winner>, p: Player) -> Evaluation {
         p * Self::evaluate(s, mw)
     }
 }

@@ -24,14 +24,22 @@ pub struct Negamax<E> {
 
 impl<E: Evaluator> Negamax<E> {
     pub fn new(opts: Options) -> Negamax<E> {
-        Negamax { opts: opts, rng: rand::thread_rng(), _eval: PhantomData }
+        Negamax {
+            opts: opts,
+            rng: rand::thread_rng(),
+            _eval: PhantomData,
+        }
     }
 
-    fn negamax(
-        &self, s: &mut <E::G as Game>::S, depth: usize,
-        mut alpha: Evaluation, beta: Evaluation, p: Player)
-        -> Evaluation
-        where <<E as Evaluator>::G as Game>::M: Copy {
+    fn negamax(&self,
+               s: &mut <E::G as Game>::S,
+               depth: usize,
+               mut alpha: Evaluation,
+               beta: Evaluation,
+               p: Player)
+               -> Evaluation
+        where <<E as Evaluator>::G as Game>::M: Copy
+    {
         let maybe_winner = E::G::get_winner(s);
         if depth == 0 || maybe_winner.is_some() {
             return p * E::evaluate(s, maybe_winner);
@@ -45,7 +53,9 @@ impl<E: Evaluator> Negamax<E> {
             m.undo(s);
             best = max(best, value);
             alpha = max(alpha, value);
-            if alpha >= beta { break }
+            if alpha >= beta {
+                break
+            }
         }
         best
     }
@@ -54,8 +64,7 @@ impl<E: Evaluator> Negamax<E> {
 impl<E: Evaluator> Strategy<E::G> for Negamax<E>
     where <E::G as Game>::S: Clone,
           <E::G as Game>::M: Copy {
-    fn choose_move(&mut self, s: &<E::G as Game>::S, p: Player)
-        -> Option<<E::G as Game>::M> {
+    fn choose_move(&mut self, s: &<E::G as Game>::S, p: Player) -> Option<<E::G as Game>::M> {
         let mut best = Evaluation::Worst;
         let mut moves = [None; 100];
         E::G::generate_moves(s, p, &mut moves);
@@ -64,7 +73,11 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
             m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone, self.opts.max_depth, Evaluation::Worst, Evaluation::Best, -p);
+            let value = -self.negamax(&mut s_clone,
+                                      self.opts.max_depth,
+                                      Evaluation::Worst,
+                                      Evaluation::Best,
+                                      -p);
             m.undo(&mut s_clone);
             // this move is a candidate move
             if value == best {

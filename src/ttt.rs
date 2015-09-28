@@ -18,17 +18,21 @@ pub enum Square {
 }
 
 impl Default for Square {
-  fn default() -> Square { Square::Empty }
+    fn default() -> Square {
+        Square::Empty
+    }
 }
 
 impl Display for Square {
-  fn fmt(&self, f: &mut Formatter) -> Result {
-    write!(f, "{}", match *self {
-        Square::Empty => ' ',
-        Square::X => 'X',
-        Square::O => 'O',
-    })
-  }
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f,
+               "{}",
+               match *self {
+                   Square::Empty => ' ',
+                   Square::X => 'X',
+                   Square::O => 'O',
+               })
+    }
 }
 
 impl From<interface::Player> for Square {
@@ -52,24 +56,34 @@ impl From<Square> for interface::Player {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
-    squares: [Square; 9]
+    squares: [Square; 9],
 }
 
 impl Default for Board {
     fn default() -> Board {
-        Board {
-            squares: [Square::default(); 9]
-        }
+        Board { squares: [Square::default(); 9] }
     }
 }
 
 impl Display for Board {
-  fn fmt(&self, f: &mut Formatter) -> Result {
-    try!(writeln!(f, "{} | {} | {}", self.squares[0], self.squares[1], self.squares[2]));
-    try!(writeln!(f, "{} | {} | {}", self.squares[3], self.squares[4], self.squares[5]));
-    try!(writeln!(f, "{} | {} | {}", self.squares[6], self.squares[7], self.squares[8]));
-    Ok(())
-  }
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        try!(writeln!(f,
+                      "{} | {} | {}",
+                      self.squares[0],
+                      self.squares[1],
+                      self.squares[2]));
+        try!(writeln!(f,
+                      "{} | {} | {}",
+                      self.squares[3],
+                      self.squares[4],
+                      self.squares[5]));
+        try!(writeln!(f,
+                      "{} | {} | {}",
+                      self.squares[6],
+                      self.squares[7],
+                      self.squares[8]));
+        Ok(())
+    }
 }
 
 pub struct Game;
@@ -78,12 +92,14 @@ impl interface::Game for Game {
     type S = Board;
     type M = Place;
 
-    fn generate_moves(b: &Board, p: interface::Player, ms: &mut [Option<Place>])
-        -> usize {
+    fn generate_moves(b: &Board, p: interface::Player, ms: &mut [Option<Place>]) -> usize {
         let mut j = 0;
         for i in 0..b.squares.len() {
             if b.squares[i] == Square::Empty {
-                ms[j] = Some(Place { i: i as u8, s: From::from(p) });
+                ms[j] = Some(Place {
+                    i: i as u8,
+                    s: From::from(p),
+                });
                 j += 1;
             }
         }
@@ -93,30 +109,38 @@ impl interface::Game for Game {
 
     fn get_winner(b: &Board) -> Option<interface::Winner> {
         // horizontal wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[1] && b.squares[1] == b.squares[2] {
+        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[1] &&
+           b.squares[1] == b.squares[2] {
             return Some(interface::Winner::Competitor(From::from(b.squares[0])));
         }
-        if b.squares[3] != Square::Empty && b.squares[3] == b.squares[4] && b.squares[4] == b.squares[5] {
+        if b.squares[3] != Square::Empty && b.squares[3] == b.squares[4] &&
+           b.squares[4] == b.squares[5] {
             return Some(interface::Winner::Competitor(From::from(b.squares[3])));
         }
-        if b.squares[6] != Square::Empty && b.squares[6] == b.squares[7] && b.squares[7] == b.squares[8] {
+        if b.squares[6] != Square::Empty && b.squares[6] == b.squares[7] &&
+           b.squares[7] == b.squares[8] {
             return Some(interface::Winner::Competitor(From::from(b.squares[6])));
         }
         // vertical wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[3] && b.squares[3] == b.squares[6] {
+        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[3] &&
+           b.squares[3] == b.squares[6] {
             return Some(interface::Winner::Competitor(From::from(b.squares[0])));
         }
-        if b.squares[1] != Square::Empty && b.squares[1] == b.squares[4] && b.squares[4] == b.squares[7] {
+        if b.squares[1] != Square::Empty && b.squares[1] == b.squares[4] &&
+           b.squares[4] == b.squares[7] {
             return Some(interface::Winner::Competitor(From::from(b.squares[1])));
         }
-        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[5] && b.squares[5] == b.squares[8] {
+        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[5] &&
+           b.squares[5] == b.squares[8] {
             return Some(interface::Winner::Competitor(From::from(b.squares[2])));
         }
         // diagonal wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[4] && b.squares[4] == b.squares[8] {
+        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[4] &&
+           b.squares[4] == b.squares[8] {
             return Some(interface::Winner::Competitor(From::from(b.squares[0])));
         }
-        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[4] && b.squares[4] == b.squares[6] {
+        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[4] &&
+           b.squares[4] == b.squares[6] {
             return Some(interface::Winner::Competitor(From::from(b.squares[2])));
         }
         // draws
@@ -130,7 +154,10 @@ impl interface::Game for Game {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct Place { i: u8, s: Square }
+pub struct Place {
+    i: u8,
+    s: Square,
+}
 
 impl Display for Place {
     fn fmt(&self, f: &mut Formatter) -> Result {
@@ -159,7 +186,7 @@ impl interface::Evaluator for Evaluator {
                 interface::Player::Computer => return interface::Evaluation::Best,
                 interface::Player::Opponent => return interface::Evaluation::Worst,
             },
-            _ => {},
+            _ => {}
         }
         let mut score = 0;
 
