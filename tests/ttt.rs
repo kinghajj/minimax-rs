@@ -3,7 +3,7 @@ extern crate minimax;
 #[path="../examples/ttt.rs"]
 mod ttt;
 
-use minimax::test::battle_royale;
+use minimax::util::battle_royale;
 
 // Ensure that two players using negamax always results in a draw.
 #[test]
