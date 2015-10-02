@@ -10,6 +10,34 @@ use rand::Rng;
 use std::cmp::max;
 use std::marker::PhantomData;
 
+fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
+                         depth: usize,
+                         mut alpha: Evaluation,
+                         beta: Evaluation,
+                         p: Player)
+                         -> Evaluation
+    where <<E as Evaluator>::G as Game>::M: Copy
+{
+    let maybe_winner = E::G::get_winner(s);
+    if depth == 0 || maybe_winner.is_some() {
+        return p * E::evaluate(s, maybe_winner);
+    }
+    let mut moves = [None; 100];
+    E::G::generate_moves(s, p, &mut moves);
+    let mut best = Evaluation::Worst;
+    for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
+        m.apply(s);
+        let value = -negamax::<E>(s, depth - 1, -beta, -alpha, -p);
+        m.undo(s);
+        best = max(best, value);
+        alpha = max(alpha, value);
+        if alpha >= beta {
+            break
+        }
+    }
+    best
+}
+
 /// Options to use for the `Negamax` engine.
 pub struct Options {
     /// The maximum depth within the game tree.
@@ -30,35 +58,6 @@ impl<E: Evaluator> Negamax<E> {
             _eval: PhantomData,
         }
     }
-
-    fn negamax(&self,
-               s: &mut <E::G as Game>::S,
-               depth: usize,
-               mut alpha: Evaluation,
-               beta: Evaluation,
-               p: Player)
-               -> Evaluation
-        where <<E as Evaluator>::G as Game>::M: Copy
-    {
-        let maybe_winner = E::G::get_winner(s);
-        if depth == 0 || maybe_winner.is_some() {
-            return p * E::evaluate(s, maybe_winner);
-        }
-        let mut moves = [None; 100];
-        E::G::generate_moves(s, p, &mut moves);
-        let mut best = Evaluation::Worst;
-        for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
-            m.apply(s);
-            let value = -self.negamax(s, depth - 1, -beta, -alpha, -p);
-            m.undo(s);
-            best = max(best, value);
-            alpha = max(alpha, value);
-            if alpha >= beta {
-                break
-            }
-        }
-        best
-    }
 }
 
 impl<E: Evaluator> Strategy<E::G> for Negamax<E>
@@ -73,7 +72,7 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
             m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone,
+            let value = -negamax::<E>(&mut s_clone,
                                       self.opts.max_depth,
                                       Evaluation::Worst,
                                       Evaluation::Best,
