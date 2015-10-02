@@ -25,12 +25,12 @@ impl Game for Noop {
     type M = Place;
 
     fn generate_moves(_: &Board, _: Player, ms: &mut [Option<Place>]) -> usize {
-        ms[0] = Some(Place);
-        ms[1] = Some(Place);
-        ms[2] = Some(Place);
-        ms[3] = Some(Place);
-        ms[4] = None;
-        4
+        const NUM_MOVES: usize = 4;
+        for m in ms.iter_mut().take(NUM_MOVES) {
+            *m = Some(Place);
+        }
+        ms[NUM_MOVES] = None;
+        NUM_MOVES
     }
 
     fn get_winner(_: &Board) -> Option<Winner> { None }
