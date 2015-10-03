@@ -235,7 +235,7 @@ impl minimax::Evaluator for Evaluator {
     }
 }
 
-fn main () {
+fn main() {
     use minimax::{Game, Move, Strategy};
     use minimax::strategies::negamax::{Negamax, Options};
 

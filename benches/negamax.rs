@@ -16,8 +16,10 @@ pub struct Noop;
 
 impl Move for Place {
     type G = Noop;
-    fn apply(&self, _: &mut Board) { }
-    fn undo(&self, _: &mut Board) { }
+    fn apply(&self, _: &mut Board) {
+    }
+    fn undo(&self, _: &mut Board) {
+    }
 }
 
 impl Game for Noop {
@@ -33,7 +35,9 @@ impl Game for Noop {
         NUM_MOVES
     }
 
-    fn get_winner(_: &Board) -> Option<Winner> { None }
+    fn get_winner(_: &Board) -> Option<Winner> {
+        None
+    }
 }
 
 impl Evaluator for Eval {
