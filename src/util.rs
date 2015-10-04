@@ -34,3 +34,34 @@ pub fn battle_royale<Game>(grader1: &mut interface::Grader<Game>,
     }
     Game::get_winner(&state).unwrap()
 }
+
+/// Use a `scoped_threadpool` to to apply a block `$f` to the `$len` `$t`-like
+/// items of an iterator `$iter`, resulting in a vector of the results of `$f`.
+///
+/// # Example
+///
+/// ```
+/// # #[macro_use] extern crate minimax;
+/// # extern crate scoped_threadpool;
+/// # fn main() {
+/// let mut pool = scoped_threadpool::Pool::new(4);
+/// let inputs = vec![1, 2, 3, 4];
+/// assert_eq!(
+///     par_map_collect!(pool, inputs.iter(), inputs.len(), &n => n * n),
+///     vec![1, 4, 9, 16]);
+/// # }
+/// ```
+#[macro_export]
+macro_rules! par_map_collect {
+    ($pool:expr, $iter:expr, $len:expr, $t:pat => $f:expr) => {{
+        let len = $len;
+        let mut results = Vec::with_capacity(len);
+        unsafe { results.set_len(len) }
+        $pool.scoped(|scope| {
+            for ($t, r) in $iter.zip(results.iter_mut()) {
+                unsafe { scope.execute(move || *r = $f) }
+            }
+        });
+        results
+    }};
+}

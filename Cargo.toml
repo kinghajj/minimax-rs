@@ -11,6 +11,10 @@ license = "MIT"
 
 [dependencies]
 rand = "0.3.*"
+scoped_threadpool = "0.1.*"
 
 [profile.test]
 opt-level = 3
+
+[dev-dependencies]
+num_cpus = "0.2.*"

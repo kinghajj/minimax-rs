@@ -1,5 +1,6 @@
 #![feature(test)]
 extern crate minimax;
+extern crate num_cpus;
 extern crate test;
 use test::Bencher;
 use minimax::*;
@@ -52,5 +53,12 @@ impl Evaluator for Eval {
 fn bench_negamax(b: &mut Bencher) {
     let board = Board;
     let mut g = Negamax::<Eval>::new(Options { max_depth: 10 });
+    b.iter(|| g.grade(&board, Player::Computer));
+}
+
+#[bench]
+fn bench_parallel_negamax(b: &mut Bencher) {
+    let board = Board;
+    let mut g = ParallelNegamax::<Eval>::new(num_cpus::get() as u32, Options { max_depth: 10 });
     b.iter(|| g.grade(&board, Player::Computer));
 }

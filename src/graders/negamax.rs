@@ -5,6 +5,7 @@
 //! picks randomly among the "best" moves, so that it's non-deterministic.
 
 use super::super::interface::*;
+use scoped_threadpool::Pool;
 use std::cmp::max;
 use std::marker::PhantomData;
 
@@ -80,5 +81,49 @@ impl<E: Evaluator> Grader<E::G> for Negamax<E>
                  }
              })
              .collect()
+    }
+}
+
+pub struct ParallelNegamax<E> {
+    opts: Options,
+    pool: Pool,
+    _eval: PhantomData<E>,
+}
+
+impl<E: Evaluator> ParallelNegamax<E> {
+    pub fn new(threads: u32, opts: Options) -> Self {
+        ParallelNegamax {
+            opts: opts,
+            pool: Pool::new(threads),
+            _eval: PhantomData,
+        }
+    }
+}
+
+impl<E: Evaluator> Grader<E::G> for ParallelNegamax<E>
+    where <E::G as Game>::S: Clone + Send,
+          <E::G as Game>::M: Copy + Send {
+    fn grade(&mut self, s: &<E::G as Game>::S, p: Player) -> Vec<Grade<<E::G as Game>::M>> {
+        let mut moves = [None; 100];
+        let num_moves = E::G::generate_moves(s, p, &mut moves);
+        let max_depth = self.opts.max_depth;
+        par_map_collect!(
+            self.pool,
+            moves.into_iter()
+                 .take(num_moves)
+                 .map(|m| (m.unwrap(), s.clone())),
+            num_moves,
+            (m, mut s) => {
+                m.apply(&mut s);
+                Grade {
+                    value: -negamax::<E>(&mut s,
+                                         max_depth,
+                                         Evaluation::Worst,
+                                         Evaluation::Best,
+                                         -p),
+                    play: m,
+                }
+             }
+        )
     }
 }
