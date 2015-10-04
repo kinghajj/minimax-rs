@@ -5,8 +5,6 @@
 //! picks randomly among the "best" moves, so that it's non-deterministic.
 
 use super::super::interface::*;
-use rand;
-use rand::Rng;
 use std::cmp::max;
 use std::marker::PhantomData;
 
@@ -46,52 +44,41 @@ pub struct Options {
 
 pub struct Negamax<E> {
     opts: Options,
-    rng: rand::ThreadRng,
     _eval: PhantomData<E>,
 }
 
 impl<E: Evaluator> Negamax<E> {
-    pub fn new(opts: Options) -> Negamax<E> {
+    pub fn new(opts: Options) -> Self {
         Negamax {
             opts: opts,
-            rng: rand::thread_rng(),
             _eval: PhantomData,
         }
     }
 }
 
-impl<E: Evaluator> Strategy<E::G> for Negamax<E>
+impl<E: Evaluator> Grader<E::G> for Negamax<E>
     where <E::G as Game>::S: Clone,
           <E::G as Game>::M: Copy {
-    fn choose_move(&mut self, s: &<E::G as Game>::S, p: Player) -> Option<<E::G as Game>::M> {
-        let mut best = Evaluation::Worst;
+    fn grade(&mut self, s: &<E::G as Game>::S, p: Player) -> Vec<Grade<<E::G as Game>::M>> {
         let mut moves = [None; 100];
-        E::G::generate_moves(s, p, &mut moves);
-        let mut candidate_moves = Vec::new();
+        let num_moves = E::G::generate_moves(s, p, &mut moves);
         let mut s_clone = s.clone();
-        for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
-            // determine value for this move
-            m.apply(&mut s_clone);
-            let value = -negamax::<E>(&mut s_clone,
-                                      self.opts.max_depth,
-                                      Evaluation::Worst,
-                                      Evaluation::Best,
-                                      -p);
-            m.undo(&mut s_clone);
-            // this move is a candidate move
-            if value == best {
-                candidate_moves.push(m);
-            // this move is better than any previous, so it's the sole candidate
-            } else if value > best {
-                candidate_moves.clear();
-                candidate_moves.push(m);
-                best = value;
-            }
-        }
-        if candidate_moves.is_empty() {
-            None
-        } else {
-            Some(candidate_moves[self.rng.gen_range(0, candidate_moves.len())])
-        }
+        moves.into_iter()
+             .take(num_moves)
+             .map(|m| m.unwrap())
+             .map(|m| {
+                 m.apply(&mut s_clone);
+                 let value = -negamax::<E>(&mut s_clone,
+                                           self.opts.max_depth,
+                                           Evaluation::Worst,
+                                           Evaluation::Best,
+                                           -p);
+                 m.undo(&mut s_clone);
+                 Grade {
+                     value: value,
+                     play: m,
+                 }
+             })
+             .collect()
     }
 }

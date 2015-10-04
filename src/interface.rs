@@ -134,7 +134,20 @@ pub trait Game : Sized {
     fn get_winner(&Self::S) -> Option<Winner>;
 }
 
-/// Defines a method of choosing a move for either player in a any game.
-pub trait Strategy<G: Game> {
-    fn choose_move(&mut self, &G::S, Player) -> Option<G::M>;
+/// Represents an assessment of a move from a certain player's perspective.
+pub struct Grade<M> {
+    /// The value given to the move by a `Grader`.
+    pub value: Evaluation,
+    /// The move itself.
+    pub play: M,
+}
+
+/// Defines a method of assessing moves available to a player at a game state.
+pub trait Grader<G: Game> {
+    fn grade(&mut self, &G::S, Player) -> Vec<Grade<G::M>>;
+}
+
+/// Defines a method of choosing among a set of graded moves.
+pub trait Chooser<M> {
+    fn choose(&mut self, &[Grade<M>]) -> Option<M>;
 }

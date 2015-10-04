@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 extern crate minimax;
+extern crate rand;
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result};
@@ -236,23 +237,22 @@ impl minimax::Evaluator for Evaluator {
 }
 
 fn main() {
-    use minimax::{Game, Move, Strategy};
-    use minimax::strategies::negamax::{Negamax, Options};
+    use minimax::{Game, Move, Grader, Chooser};
+    use minimax::graders::negamax::{Negamax, Options};
+    use minimax::choosers::Random;
 
     let mut b = Board::default();
-    let mut strategies = vec![
-        (minimax::Player::Computer, Negamax::<Evaluator>::new(Options { max_depth: 10 })),
-        (minimax::Player::Opponent, Negamax::<Evaluator>::new(Options { max_depth: 10 })),
-    ];
-    let mut s = 0;
+    let mut grader = Negamax::<Evaluator>::new(Options { max_depth: 10 });
+    let mut chooser = Random::new(rand::thread_rng());
+    let mut p = minimax::Player::Computer;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);
-        let (p, ref mut strategy) = strategies[s];
-        match strategy.choose_move(&mut b, p) {
-            Some(m) => m.apply(&mut b),
+        let graded_moves = grader.grade(&b, p);
+        match chooser.choose(&graded_moves) {
             None => break,
+            Some(m) => m.apply(&mut b),
         }
-        s = 1 - s;
+        p = -p;
     }
     println!("{}", b);
 }

@@ -1,4 +1,5 @@
 extern crate minimax;
+extern crate rand;
 
 #[path="../examples/ttt.rs"]
 mod ttt;
@@ -8,24 +9,31 @@ use minimax::util::battle_royale;
 // Ensure that two players using negamax always results in a draw.
 #[test]
 fn test_ttt_negamax_always_draws() {
-    use minimax::strategies::negamax::{Negamax, Options};
+    use minimax::graders::negamax::{Negamax, Options};
+    use minimax::choosers::Random;
     let mut s1 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
     let mut s2 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
+    let mut c1 = Random::new(rand::thread_rng());
+    let mut c2 = Random::new(rand::thread_rng());
     for _ in 0..100 {
-        assert!(battle_royale(&mut s1, &mut s2) == minimax::Winner::Draw)
+        assert!(battle_royale(&mut s1, &mut c1, &mut s2, &mut c2) == minimax::Winner::Draw)
     }
 }
+
 
 // Ensure that a player using negamax against a random one always results in
 // either a draw or a win for the former player.
 #[test]
 fn test_ttt_negamax_vs_random_always_wins_or_draws() {
-    use minimax::strategies::negamax::{Negamax, Options};
-    use minimax::strategies::random::Random;
+    use minimax::graders::bogus::Bogus;
+    use minimax::graders::negamax::{Negamax, Options};
+    use minimax::choosers::Random;
     let mut s1 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
-    let mut s2 = Random::new();
+    let mut s2 = Bogus;
+    let mut c1 = Random::new(rand::thread_rng());
+    let mut c2 = Random::new(rand::thread_rng());
     for _ in 0..100 {
-        assert!(battle_royale(&mut s1, &mut s2) !=
+        assert!(battle_royale(&mut s1, &mut c1, &mut s2, &mut c2) !=
                 minimax::Winner::Competitor(minimax::Player::Opponent))
     }
 }

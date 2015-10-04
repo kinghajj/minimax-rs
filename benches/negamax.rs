@@ -51,6 +51,6 @@ impl Evaluator for Eval {
 #[bench]
 fn bench_negamax(b: &mut Bencher) {
     let board = Board;
-    let mut s = Negamax::<Eval>::new(Options { max_depth: 10 });
-    b.iter(|| s.choose_move(&board, Player::Computer));
+    let mut g = Negamax::<Eval>::new(Options { max_depth: 10 });
+    b.iter(|| g.grade(&board, Player::Computer));
 }
