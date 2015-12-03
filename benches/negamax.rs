@@ -17,10 +17,8 @@ pub struct Noop;
 
 impl Move for Place {
     type G = Noop;
-    fn apply(&self, _: &mut Board) {
-    }
-    fn undo(&self, _: &mut Board) {
-    }
+    fn apply(&self, _: &mut Board) {}
+    fn undo(&self, _: &mut Board) {}
 }
 
 impl Game for Noop {

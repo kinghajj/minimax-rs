@@ -17,8 +17,9 @@ pub fn battle_royale<Game>(grader1: &mut interface::Grader<Game>,
           Game::S: Default
 {
     let mut state = Game::S::default();
-    let mut players: Vec<(_, &mut interface::Grader<Game>, &mut interface::Chooser<Game::M>)> =
-        vec![
+    let mut players: Vec<(_,
+                          &mut interface::Grader<Game>,
+                          &mut interface::Chooser<Game::M>)> = vec![
             (interface::Player::Computer, grader1, chooser1),
             (interface::Player::Opponent, grader2, chooser2),
         ];

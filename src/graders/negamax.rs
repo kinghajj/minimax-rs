@@ -31,7 +31,7 @@ fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
         best = max(best, value);
         alpha = max(alpha, value);
         if alpha >= beta {
-            break
+            break;
         }
     }
     best
@@ -59,7 +59,8 @@ impl<E: Evaluator> Negamax<E> {
 
 impl<E: Evaluator> Grader<E::G> for Negamax<E>
     where <E::G as Game>::S: Clone,
-          <E::G as Game>::M: Copy {
+          <E::G as Game>::M: Copy
+{
     fn grade(&mut self, s: &<E::G as Game>::S, p: Player) -> Vec<Grade<<E::G as Game>::M>> {
         let mut moves = [None; 100];
         let num_moves = E::G::generate_moves(s, p, &mut moves);
@@ -102,7 +103,8 @@ impl<E: Evaluator> ParallelNegamax<E> {
 
 impl<E: Evaluator> Grader<E::G> for ParallelNegamax<E>
     where <E::G as Game>::S: Clone + Send,
-          <E::G as Game>::M: Copy + Send {
+          <E::G as Game>::M: Copy + Send
+{
     fn grade(&mut self, s: &<E::G as Game>::S, p: Player) -> Vec<Grade<<E::G as Game>::M>> {
         let mut moves = [None; 100];
         let num_moves = E::G::generate_moves(s, p, &mut moves);
