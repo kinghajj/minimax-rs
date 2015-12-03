@@ -184,12 +184,11 @@ impl minimax::Evaluator for Evaluator {
     type G = Game;
     // adapted from http://www.cs.olemiss.edu/~dwilkins/CSCI531/tic.c
     fn evaluate(b: &Board, mw: Option<minimax::Winner>) -> minimax::Evaluation {
-        match mw {
-            Some(minimax::Winner::Competitor(wp)) => match wp {
+        if let Some(minimax::Winner::Competitor(wp)) = mw {
+            match wp {
                 minimax::Player::Computer => return minimax::Evaluation::Best,
                 minimax::Player::Opponent => return minimax::Evaluation::Worst,
-            },
-            _ => {}
+            }
         }
         let mut score = 0;
 
