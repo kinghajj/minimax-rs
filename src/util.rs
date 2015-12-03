@@ -59,7 +59,7 @@ macro_rules! par_map_collect {
         unsafe { results.set_len(len) }
         $pool.scoped(|scope| {
             for ($t, r) in $iter.zip(results.iter_mut()) {
-                unsafe { scope.execute(move || *r = $f) }
+                scope.execute(move || *r = $f)
             }
         });
         results
