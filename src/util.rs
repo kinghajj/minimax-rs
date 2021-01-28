@@ -2,7 +2,7 @@
 
 use super::interface;
 use super::interface::Move;
-use std::default::Default;
+use core::default::Default;
 
 /// Play a complete, new game with players using the two provided strategies.
 ///
@@ -15,7 +15,7 @@ pub fn battle_royale<G, S1, S2>(s1: &mut S1, s2: &mut S2) -> interface::Winner
           S2: interface::Strategy<G>
 {
     let mut state = G::S::default();
-    let mut strategies: Vec<(interface::Player, &mut interface::Strategy<G>)> = vec![
+    let mut strategies: [(interface::Player, &mut interface::Strategy<G>); 2] = [
             (interface::Player::Computer, s1),
             (interface::Player::Opponent, s2),
         ];

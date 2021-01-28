@@ -1,3 +1,5 @@
+#![no_std]
+
 extern crate rand;
 
 pub mod interface;

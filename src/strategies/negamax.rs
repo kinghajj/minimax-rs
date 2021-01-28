@@ -7,8 +7,8 @@
 use super::super::interface::*;
 use rand;
 use rand::Rng;
-use std::cmp::max;
-use std::marker::PhantomData;
+use core::cmp::max;
+use core::marker::PhantomData;
 
 fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
                          depth: usize,
@@ -67,9 +67,9 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
         let mut best = Evaluation::Worst;
         let mut moves = [None; 100];
         E::G::generate_moves(s, p, &mut moves);
-        let mut candidate_moves = Vec::new();
+        let mut candidate_moves = [false; 100];
         let mut s_clone = s.clone();
-        for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
+	for (m,i) in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()).zip(0..) {
             // determine value for this move
             m.apply(&mut s_clone);
             let value = -negamax::<E>(&mut s_clone,
@@ -80,18 +80,15 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
             m.undo(&mut s_clone);
             // this move is a candidate move
             if value == best {
-                candidate_moves.push(m);
+                candidate_moves[i] = true;
             // this move is better than any previous, so it's the sole candidate
             } else if value > best {
-                candidate_moves.clear();
-                candidate_moves.push(m);
+                candidate_moves = [false; 100];
+                candidate_moves[i] = true;
                 best = value;
             }
         }
-        if candidate_moves.is_empty() {
-            None
-        } else {
-            Some(candidate_moves[self.rng.gen_range(0, candidate_moves.len())])
-        }
+	let i = self.rng.gen_range(0, candidate_moves.iter().filter(|&&x|x).count());
+	*moves.iter().zip(&candidate_moves).filter(|(_,&b)|b).nth(i)?.0
     }
 }

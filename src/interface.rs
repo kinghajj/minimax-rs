@@ -1,6 +1,6 @@
 //! The common structures and traits.
 
-use std::ops;
+use core::ops;
 
 /// A competitor within a game.
 ///
