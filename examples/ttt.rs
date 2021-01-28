@@ -69,21 +69,21 @@ impl Default for Board {
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        try!(writeln!(f,
-                      "{} | {} | {}",
-                      self.squares[0],
-                      self.squares[1],
-                      self.squares[2]));
-        try!(writeln!(f,
-                      "{} | {} | {}",
-                      self.squares[3],
-                      self.squares[4],
-                      self.squares[5]));
-        try!(writeln!(f,
-                      "{} | {} | {}",
-                      self.squares[6],
-                      self.squares[7],
-                      self.squares[8]));
+        writeln!(f,
+                 "{} | {} | {}",
+                 self.squares[0],
+                 self.squares[1],
+                 self.squares[2])?;
+        writeln!(f,
+                 "{} | {} | {}",
+                 self.squares[3],
+                 self.squares[4],
+                 self.squares[5])?;
+        writeln!(f,
+                 "{} | {} | {}",
+                 self.squares[6],
+                 self.squares[7],
+                 self.squares[8])?;
         Ok(())
     }
 }

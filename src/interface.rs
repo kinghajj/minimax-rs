@@ -90,10 +90,8 @@ pub trait Move {
     /// The type of game that the move affects.
     type G: Game;
     /// Change the state of `S` so that the move is applied.
-    #[inline]
     fn apply(&self, &mut <Self::G as Game>::S);
     /// Revert the state of `S` so that the move is undone.
-    #[inline]
     fn undo(&self, &mut <Self::G as Game>::S);
 }
 
@@ -125,7 +123,6 @@ pub trait Game : Sized {
     /// memory for the slice to be a stack-allocated array. One stable, this
     /// trait will be extended with an associated constant to specify the
     /// maximum number of moves.
-    #[inline]
     fn generate_moves(&Self::S, Player, &mut [Option<Self::M>]) -> usize;
 
     /// Returns `Some(Competitor(winning_player))` if there's a winner,
