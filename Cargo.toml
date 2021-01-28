@@ -10,7 +10,7 @@ keywords = ["ai", "game", "minimax", "negamax"]
 license = "MIT"
 
 [dependencies]
-rand = "0.3.*"
+rand = "0.4.*"
 
 [profile.test]
 opt-level = 3
