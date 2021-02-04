@@ -16,9 +16,9 @@ impl Random {
 
 impl<G: Game> Strategy<G> for Random
     where G::M: Copy {
-    fn choose_move(&mut self, s: &G::S, p: Player) -> Option<G::M> {
+    fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
         let mut moves: [Option<G::M>; 100] = [None; 100];
-        match G::generate_moves(s, p, &mut moves) {
+        match G::generate_moves(s, &mut moves) {
             0 => None,
             num_moves => Some(moves[self.rng.gen_range(0, num_moves)].unwrap()),
         }

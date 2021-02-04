@@ -9,7 +9,6 @@ extern crate minimax;
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result};
-use std::convert::From;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
@@ -17,6 +16,16 @@ pub enum Square {
     Empty,
     X,
     O,
+}
+
+impl Square {
+    fn invert(&self) -> Self {
+	match *self {
+	    Square::Empty => Square::Empty,
+	    Square::X => Square::O,
+	    Square::O => Square::X,
+	}
+    }
 }
 
 impl Default for Square {
@@ -37,33 +46,21 @@ impl Display for Square {
     }
 }
 
-impl From<minimax::Player> for Square {
-    fn from(p: minimax::Player) -> Square {
-        match p {
-            minimax::Player::Computer => Square::X,
-            minimax::Player::Opponent => Square::O,
-        }
-    }
-}
-
-impl From<Square> for minimax::Player {
-    fn from(s: Square) -> minimax::Player {
-        match s {
-            Square::X => minimax::Player::Computer,
-            Square::O => minimax::Player::Opponent,
-            _ => panic!("From::from(Square::Empty))"),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [Square; 9],
+    to_move: Square,
+}
+
+impl Board {
+    fn just_moved(&self) -> Square {
+	self.to_move.invert()
+    }
 }
 
 impl Default for Board {
     fn default() -> Board {
-        Board { squares: [Square::default(); 9] }
+        Board { squares: [Square::default(); 9], to_move: Square::X }
     }
 }
 
@@ -94,14 +91,11 @@ impl minimax::Game for Game {
     type S = Board;
     type M = Place;
 
-    fn generate_moves(b: &Board, p: minimax::Player, ms: &mut [Option<Place>]) -> usize {
+    fn generate_moves(b: &Board, ms: &mut [Option<Place>]) -> usize {
         let mut j = 0;
         for i in 0..b.squares.len() {
             if b.squares[i] == Square::Empty {
-                ms[j] = Some(Place {
-                    i: i as u8,
-                    s: From::from(p),
-                });
+                ms[j] = Some(Place { i: i as u8 });
                 j += 1;
             }
         }
@@ -110,40 +104,42 @@ impl minimax::Game for Game {
     }
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {
+	// A player can only cause themselves to win on their turn, so only check for that.
+
         // horizontal wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[1] &&
+        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[1] &&
            b.squares[1] == b.squares[2] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[0])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[3] != Square::Empty && b.squares[3] == b.squares[4] &&
+        if b.squares[3] == b.just_moved() && b.squares[3] == b.squares[4] &&
            b.squares[4] == b.squares[5] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[3])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[6] != Square::Empty && b.squares[6] == b.squares[7] &&
+        if b.squares[6] == b.just_moved() && b.squares[6] == b.squares[7] &&
            b.squares[7] == b.squares[8] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[6])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
         // vertical wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[3] &&
+        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[3] &&
            b.squares[3] == b.squares[6] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[0])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[1] != Square::Empty && b.squares[1] == b.squares[4] &&
+        if b.squares[1] == b.just_moved() && b.squares[1] == b.squares[4] &&
            b.squares[4] == b.squares[7] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[1])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[5] &&
+        if b.squares[2] == b.just_moved() && b.squares[2] == b.squares[5] &&
            b.squares[5] == b.squares[8] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[2])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
         // diagonal wins
-        if b.squares[0] != Square::Empty && b.squares[0] == b.squares[4] &&
+        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[4] &&
            b.squares[4] == b.squares[8] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[0])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[2] != Square::Empty && b.squares[2] == b.squares[4] &&
+        if b.squares[2] == b.just_moved() && b.squares[2] == b.squares[4] &&
            b.squares[4] == b.squares[6] {
-            return Some(minimax::Winner::Competitor(From::from(b.squares[2])));
+            return Some(minimax::Winner::PlayerJustMoved);
         }
         // draws
         if b.squares.iter().all(|s| *s != Square::Empty) {
@@ -158,22 +154,23 @@ impl minimax::Game for Game {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Place {
     i: u8,
-    s: Square,
 }
 
 impl Display for Place {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}@{}", self.s, self.i)
+        write!(f, "@{}", self.i)
     }
 }
 
 impl minimax::Move for Place {
     type G = Game;
     fn apply(&self, b: &mut Board) {
-        b.squares[self.i as usize] = self.s;
+        b.squares[self.i as usize] = b.to_move;
+        b.to_move = b.to_move.invert();
     }
     fn undo(&self, b: &mut Board) {
         b.squares[self.i as usize] = Square::Empty;
+        b.to_move = b.to_move.invert();
     }
 }
 
@@ -182,14 +179,7 @@ pub struct Evaluator;
 impl minimax::Evaluator for Evaluator {
     type G = Game;
     // adapted from http://www.cs.olemiss.edu/~dwilkins/CSCI531/tic.c
-    fn evaluate(b: &Board, mw: Option<minimax::Winner>) -> minimax::Evaluation {
-        match mw {
-            Some(minimax::Winner::Competitor(wp)) => match wp {
-                minimax::Player::Computer => return minimax::Evaluation::Best,
-                minimax::Player::Opponent => return minimax::Evaluation::Worst,
-            },
-            _ => {}
-        }
+    fn evaluate(b: &Board) -> minimax::Evaluation {
         let mut score = 0;
 
         // 3rd: check for doubles
@@ -231,7 +221,7 @@ impl minimax::Evaluator for Evaluator {
         if b.squares[4] == Square::O {
             score -= 5;
         }
-        minimax::Evaluation::Score(score)
+        minimax::Evaluation::Score(if b.to_move == Square::X { score } else { -score })
     }
 }
 
@@ -241,14 +231,14 @@ fn main() {
 
     let mut b = Board::default();
     let mut strategies = vec![
-        (minimax::Player::Computer, Negamax::<Evaluator>::new(Options { max_depth: 10 })),
-        (minimax::Player::Opponent, Negamax::<Evaluator>::new(Options { max_depth: 10 })),
+        Negamax::<Evaluator>::new(Options { max_depth: 10 }),
+        Negamax::<Evaluator>::new(Options { max_depth: 10 }),
     ];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);
-        let (p, ref mut strategy) = strategies[s];
-        match strategy.choose_move(&mut b, p) {
+        let ref mut strategy = strategies[s];
+        match strategy.choose_move(&mut b) {
             Some(m) => m.apply(&mut b),
             None => break,
         }

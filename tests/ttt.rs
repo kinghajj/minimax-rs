@@ -12,7 +12,7 @@ fn test_ttt_negamax_always_draws() {
     let mut s1 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
     let mut s2 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
     for _ in 0..100 {
-        assert!(battle_royale(&mut s1, &mut s2) == minimax::Winner::Draw)
+        assert_eq!(battle_royale(&mut s1, &mut s2), None);
     }
 }
 
@@ -25,7 +25,6 @@ fn test_ttt_negamax_vs_random_always_wins_or_draws() {
     let mut s1 = Negamax::<ttt::Evaluator>::new(Options { max_depth: 10 });
     let mut s2 = Random::new();
     for _ in 0..100 {
-        assert!(battle_royale(&mut s1, &mut s2) !=
-                minimax::Winner::Competitor(minimax::Player::Opponent))
+        assert_ne!(battle_royale(&mut s1, &mut s2), Some(1));
     }
 }

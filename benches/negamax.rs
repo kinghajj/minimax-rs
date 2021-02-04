@@ -26,7 +26,7 @@ impl Game for Noop {
     type S = Board;
     type M = Place;
 
-    fn generate_moves(_: &Board, _: Player, ms: &mut [Option<Place>]) -> usize {
+    fn generate_moves(_: &Board, ms: &mut [Option<Place>]) -> usize {
         const NUM_MOVES: usize = 4;
         for m in ms.iter_mut().take(NUM_MOVES) {
             *m = Some(Place);
@@ -43,7 +43,7 @@ impl Game for Noop {
 impl Evaluator for Eval {
     type G = Noop;
 
-    fn evaluate(_: &Board, _: Option<Winner>) -> Evaluation {
+    fn evaluate(_: &Board) -> Evaluation {
         Evaluation::Score(0)
     }
 }
@@ -52,5 +52,5 @@ impl Evaluator for Eval {
 fn bench_negamax(b: &mut Bencher) {
     let board = Board;
     let mut s = Negamax::<Eval>::new(Options { max_depth: 10 });
-    b.iter(|| s.choose_move(&board, Player::Computer));
+    b.iter(|| s.choose_move(&board));
 }

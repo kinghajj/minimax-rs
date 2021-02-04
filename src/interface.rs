@@ -2,35 +2,13 @@
 
 use std::ops;
 
-/// A competitor within a game.
-///
-/// For simplicity, only two players are supported. Their values correspond to
-/// the "color" parameter in Negamax.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(i8)]
-pub enum Player {
-    Computer = 1,
-    Opponent = -1,
-}
-
-/// Negating a player results in the opposite one.
-impl ops::Neg for Player {
-    type Output = Player;
-    #[inline]
-    fn neg(self) -> Player {
-        match self {
-            Player::Computer => Player::Opponent,
-            Player::Opponent => Player::Computer,
-        }
-    }
-}
-
-/// An assessment of a game state from a particular player's perspective.
+/// An assessment of a game state from the perspective of the player about to move.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Evaluation {
     /// An absolutely disastrous outcome, e.g. a loss.
     Worst,
     /// An outcome with some score. Higher values mean a more favorable state.
+    /// A draw is defined as a score of zero.
     Score(i64),
     /// An absolutely wonderful outcome, e.g. a win.
     Best,
@@ -50,36 +28,13 @@ impl ops::Neg for Evaluation {
     }
 }
 
-/// Multiplying a player and an evaluation negates the latter iff the former
-/// is `Opponent`.
-impl ops::Mul<Evaluation> for Player {
-    type Output = Evaluation;
-    #[inline]
-    fn mul(self, e: Evaluation) -> Evaluation {
-        match self {
-            Player::Computer => e,
-            Player::Opponent => -e,
-        }
-    }
-}
-
 /// Evaluates a game's positions.
-///
-/// The methods are defined recursively, so that implementing one is sufficient.
 pub trait Evaluator {
     /// The type of game that can be evaluated.
     type G: Game;
-    /// Evaluate the state from the persective of `Player::Computer`.
-    #[inline]
-    fn evaluate(s: &<Self::G as Game>::S, mw: Option<Winner>) -> Evaluation {
-        Self::evaluate_for(s, mw, Player::Computer)
-    }
-
-    /// Evaluate the state from the given player's persective.
-    #[inline]
-    fn evaluate_for(s: &<Self::G as Game>::S, mw: Option<Winner>, p: Player) -> Evaluation {
-        p * Self::evaluate(s, mw)
-    }
+    /// Evaluate the non-terminal state from the persective of the player to
+    /// move next.
+    fn evaluate(s: &<Self::G as Game>::S) -> Evaluation;
 }
 
 /// Defines how a move affects the game state.
@@ -98,10 +53,26 @@ pub trait Move {
 /// The result of playing a game until it finishes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Winner {
-    /// A player won.
-    Competitor(Player),
+    /// The player who made the last move won.
+    PlayerJustMoved,
     /// Nobody won.
     Draw,
+    /// The player who made the last move lost.
+    ///
+    /// This is uncommon, and many games (chess, checkers, tic-tac-toe, etc)
+    /// do not have this possibility.
+    PlayerToMove,
+}
+
+impl Winner {
+    /// Canonical evaluations for end states.
+    pub fn evaluate(&self) -> Evaluation {
+	match *self {
+	    Winner::PlayerJustMoved => Evaluation::Worst,
+	    Winner::PlayerToMove => Evaluation::Best,
+	    Winner::Draw => Evaluation::Score(0),
+	}
+    }
 }
 
 /// Defines the rules for a two-player, perfect-knowledge game.
@@ -114,24 +85,24 @@ pub trait Game : Sized {
     /// The type of game moves.
     type M: Move<G=Self>;
 
-    /// Generate moves for a player at the given state. After finishing, the
-    /// next entry in the slice should be set to `None` to indicate the end.
-    /// Returns the number of moves generated.
+    /// Generate moves at the given state. After finishing, the next entry in
+    /// the slice should be set to `None` to indicate the end.  Returns the
+    /// number of moves generated.
     ///
     /// Currently, there's a deficiency that all strategies assume that at most
     /// 100 moves may be generated for any position, which allows the underlying
-    /// memory for the slice to be a stack-allocated array. One stable, this
+    /// memory for the slice to be a stack-allocated array. Once stable, this
     /// trait will be extended with an associated constant to specify the
     /// maximum number of moves.
-    fn generate_moves(&Self::S, Player, &mut [Option<Self::M>]) -> usize;
+    fn generate_moves(&Self::S, &mut [Option<Self::M>]) -> usize;
 
-    /// Returns `Some(Competitor(winning_player))` if there's a winner,
+    /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if
     /// the state is non-terminal.
     fn get_winner(&Self::S) -> Option<Winner>;
 }
 
-/// Defines a method of choosing a move for either player in a any game.
+/// Defines a method of choosing a move for the current player.
 pub trait Strategy<G: Game> {
-    fn choose_move(&mut self, &G::S, Player) -> Option<G::M>;
+    fn choose_move(&mut self, &G::S) -> Option<G::M>;
 }
