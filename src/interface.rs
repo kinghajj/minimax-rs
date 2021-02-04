@@ -90,7 +90,7 @@ pub trait Game : Sized {
     /// number of moves generated.
     ///
     /// Currently, there's a deficiency that all strategies assume that at most
-    /// 100 moves may be generated for any position, which allows the underlying
+    /// 200 moves may be generated for any position, which allows the underlying
     /// memory for the slice to be a stack-allocated array. Once stable, this
     /// trait will be extended with an associated constant to specify the
     /// maximum number of moves.

@@ -23,7 +23,7 @@ fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
     if depth == 0 {
         return E::evaluate(s);
     }
-    let mut moves = [None; 100];
+    let mut moves = [None; 200];
     E::G::generate_moves(s, &mut moves);
     let mut best = Evaluation::Worst;
     for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
@@ -66,7 +66,7 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
           <E::G as Game>::M: Copy {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         let mut best = Evaluation::Worst;
-        let mut moves = [None; 100];
+        let mut moves = [None; 200];
         E::G::generate_moves(s, &mut moves);
         let mut candidate_moves = Vec::new();
         let mut s_clone = s.clone();
