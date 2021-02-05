@@ -67,8 +67,12 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         let mut best = Evaluation::Worst;
         let mut moves = [None; 200];
-        E::G::generate_moves(s, &mut moves);
-        let mut candidate_moves = Vec::new();
+        let n = E::G::generate_moves(s, &mut moves);
+        // Randomly permute order that we look at the moves.
+        // We'll pick the first best score from this list.
+        self.rng.shuffle(&mut moves[..n]);
+
+        let mut best_move = moves.iter().next()?.unwrap();
         let mut s_clone = s.clone();
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
@@ -76,22 +80,14 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
             let value = -negamax::<E>(&mut s_clone,
                                       self.opts.max_depth,
                                       Evaluation::Worst,
-                                      Evaluation::Best);
+                                      -best);
             m.undo(&mut s_clone);
-            // this move is a candidate move
-            if value == best {
-                candidate_moves.push(m);
-            // this move is better than any previous, so it's the sole candidate
-            } else if value > best {
-                candidate_moves.clear();
-                candidate_moves.push(m);
+            // Strictly better than any move found so far.
+            if value > best {
                 best = value;
+                best_move = m;
             }
         }
-        if candidate_moves.is_empty() {
-            None
-        } else {
-            Some(candidate_moves[self.rng.gen_range(0, candidate_moves.len())])
-        }
+        Some(best_move)
     }
 }
