@@ -221,7 +221,7 @@ impl minimax::Evaluator for Evaluator {
         if b.squares[4] == Square::O {
             score -= 5;
         }
-        minimax::Evaluation::Score(if b.to_move == Square::X { score } else { -score })
+        if b.to_move == Square::X { score } else { -score }
     }
 }
 

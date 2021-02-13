@@ -1,32 +1,18 @@
 //! The common structures and traits.
 
-use std::ops;
-
 /// An assessment of a game state from the perspective of the player about to move.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Evaluation {
-    /// An absolutely disastrous outcome, e.g. a loss.
-    Worst,
-    /// An outcome with some score. Higher values mean a more favorable state.
-    /// A draw is defined as a score of zero.
-    Score(i64),
-    /// An absolutely wonderful outcome, e.g. a win.
-    Best,
-}
+/// Higher values mean a more favorable state.
+/// A draw is defined as a score of zero.
+pub type Evaluation = i32;
 
-/// Negating an evaluation results in the corresponding one from the other
-/// player's persective.
-impl ops::Neg for Evaluation {
-    type Output = Evaluation;
-    #[inline]
-    fn neg(self) -> Evaluation {
-        match self {
-            Evaluation::Worst => Evaluation::Best,
-            Evaluation::Score(s) => Evaluation::Score(-s),
-            Evaluation::Best => Evaluation::Worst,
-        }
-    }
-}
+// These definitions ensure that they negate to each other, but it leaves
+// i32::MIN as a valid value less than WORST_EVAL. Don't use this value, and
+// any Strategy will panic when it tries to negate it.
+
+/// An absolutely wonderful outcome, e.g. a win.
+pub const BEST_EVAL: Evaluation = i32::MAX;
+/// An absolutely disastrous outcome, e.g. a loss.
+pub const WORST_EVAL: Evaluation = -BEST_EVAL;
 
 /// Evaluates a game's positions.
 pub trait Evaluator {
@@ -68,9 +54,9 @@ impl Winner {
     /// Canonical evaluations for end states.
     pub fn evaluate(&self) -> Evaluation {
 	match *self {
-	    Winner::PlayerJustMoved => Evaluation::Worst,
-	    Winner::PlayerToMove => Evaluation::Best,
-	    Winner::Draw => Evaluation::Score(0),
+	    Winner::PlayerJustMoved => WORST_EVAL,
+	    Winner::PlayerToMove => BEST_EVAL,
+	    Winner::Draw => 0,
 	}
     }
 }
