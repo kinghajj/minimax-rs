@@ -1,8 +1,8 @@
 #![feature(test)]
 extern crate minimax;
 extern crate test;
-use test::Bencher;
 use minimax::*;
+use test::Bencher;
 
 #[derive(Clone)]
 pub struct Board;
@@ -16,10 +16,8 @@ pub struct Noop;
 
 impl Move for Place {
     type G = Noop;
-    fn apply(&self, _: &mut Board) {
-    }
-    fn undo(&self, _: &mut Board) {
-    }
+    fn apply(&self, _: &mut Board) {}
+    fn undo(&self, _: &mut Board) {}
 }
 
 impl Game for Noop {

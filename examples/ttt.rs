@@ -20,11 +20,11 @@ pub enum Square {
 
 impl Square {
     fn invert(&self) -> Self {
-	match *self {
-	    Square::Empty => Square::Empty,
-	    Square::X => Square::O,
-	    Square::O => Square::X,
-	}
+        match *self {
+            Square::Empty => Square::Empty,
+            Square::X => Square::O,
+            Square::O => Square::X,
+        }
     }
 }
 
@@ -36,13 +36,15 @@ impl Default for Square {
 
 impl Display for Square {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f,
-               "{}",
-               match *self {
-                   Square::Empty => ' ',
-                   Square::X => 'X',
-                   Square::O => 'O',
-               })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Square::Empty => ' ',
+                Square::X => 'X',
+                Square::O => 'O',
+            }
+        )
     }
 }
 
@@ -54,7 +56,7 @@ pub struct Board {
 
 impl Board {
     fn just_moved(&self) -> Square {
-	self.to_move.invert()
+        self.to_move.invert()
     }
 }
 
@@ -66,21 +68,9 @@ impl Default for Board {
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        writeln!(f,
-                 "{} | {} | {}",
-                 self.squares[0],
-                 self.squares[1],
-                 self.squares[2])?;
-        writeln!(f,
-                 "{} | {} | {}",
-                 self.squares[3],
-                 self.squares[4],
-                 self.squares[5])?;
-        writeln!(f,
-                 "{} | {} | {}",
-                 self.squares[6],
-                 self.squares[7],
-                 self.squares[8])?;
+        writeln!(f, "{} | {} | {}", self.squares[0], self.squares[1], self.squares[2])?;
+        writeln!(f, "{} | {} | {}", self.squares[3], self.squares[4], self.squares[5])?;
+        writeln!(f, "{} | {} | {}", self.squares[6], self.squares[7], self.squares[8])?;
         Ok(())
     }
 }
@@ -104,41 +94,57 @@ impl minimax::Game for Game {
     }
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {
-	// A player can only cause themselves to win on their turn, so only check for that.
+        // A player can only cause themselves to win on their turn, so only check for that.
 
         // horizontal wins
-        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[1] &&
-           b.squares[1] == b.squares[2] {
+        if b.squares[0] == b.just_moved()
+            && b.squares[0] == b.squares[1]
+            && b.squares[1] == b.squares[2]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[3] == b.just_moved() && b.squares[3] == b.squares[4] &&
-           b.squares[4] == b.squares[5] {
+        if b.squares[3] == b.just_moved()
+            && b.squares[3] == b.squares[4]
+            && b.squares[4] == b.squares[5]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[6] == b.just_moved() && b.squares[6] == b.squares[7] &&
-           b.squares[7] == b.squares[8] {
+        if b.squares[6] == b.just_moved()
+            && b.squares[6] == b.squares[7]
+            && b.squares[7] == b.squares[8]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
         // vertical wins
-        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[3] &&
-           b.squares[3] == b.squares[6] {
+        if b.squares[0] == b.just_moved()
+            && b.squares[0] == b.squares[3]
+            && b.squares[3] == b.squares[6]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[1] == b.just_moved() && b.squares[1] == b.squares[4] &&
-           b.squares[4] == b.squares[7] {
+        if b.squares[1] == b.just_moved()
+            && b.squares[1] == b.squares[4]
+            && b.squares[4] == b.squares[7]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[2] == b.just_moved() && b.squares[2] == b.squares[5] &&
-           b.squares[5] == b.squares[8] {
+        if b.squares[2] == b.just_moved()
+            && b.squares[2] == b.squares[5]
+            && b.squares[5] == b.squares[8]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
         // diagonal wins
-        if b.squares[0] == b.just_moved() && b.squares[0] == b.squares[4] &&
-           b.squares[4] == b.squares[8] {
+        if b.squares[0] == b.just_moved()
+            && b.squares[0] == b.squares[4]
+            && b.squares[4] == b.squares[8]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
-        if b.squares[2] == b.just_moved() && b.squares[2] == b.squares[4] &&
-           b.squares[4] == b.squares[6] {
+        if b.squares[2] == b.just_moved()
+            && b.squares[2] == b.squares[4]
+            && b.squares[4] == b.squares[6]
+        {
             return Some(minimax::Winner::PlayerJustMoved);
         }
         // draws
@@ -221,13 +227,17 @@ impl minimax::Evaluator for Evaluator {
         if b.squares[4] == Square::O {
             score -= 5;
         }
-        if b.to_move == Square::X { score } else { -score }
+        if b.to_move == Square::X {
+            score
+        } else {
+            -score
+        }
     }
 }
 
 fn main() {
-    use minimax::{Game, Move, Strategy};
     use minimax::strategies::negamax::{Negamax, Options};
+    use minimax::{Game, Move, Strategy};
 
     let mut b = Board::default();
     let mut strategies = vec![

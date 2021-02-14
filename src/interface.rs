@@ -53,11 +53,11 @@ pub enum Winner {
 impl Winner {
     /// Canonical evaluations for end states.
     pub fn evaluate(&self) -> Evaluation {
-	match *self {
-	    Winner::PlayerJustMoved => WORST_EVAL,
-	    Winner::PlayerToMove => BEST_EVAL,
-	    Winner::Draw => 0,
-	}
+        match *self {
+            Winner::PlayerJustMoved => WORST_EVAL,
+            Winner::PlayerToMove => BEST_EVAL,
+            Winner::Draw => 0,
+        }
     }
 }
 
@@ -65,11 +65,11 @@ impl Winner {
 ///
 /// A game ties together types for the state and moves, generates the possible
 /// moves from a particular state, and determines whether a state is terminal.
-pub trait Game : Sized {
+pub trait Game: Sized {
     /// The type of the game state.
     type S;
     /// The type of game moves.
-    type M: Move<G=Self>;
+    type M: Move<G = Self>;
 
     /// Generate moves at the given state. After finishing, the next entry in
     /// the slice should be set to `None` to indicate the end.  Returns the

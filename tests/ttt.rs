@@ -1,6 +1,6 @@
 extern crate minimax;
 
-#[path="../examples/ttt.rs"]
+#[path = "../examples/ttt.rs"]
 mod ttt;
 
 use minimax::util::battle_royale;

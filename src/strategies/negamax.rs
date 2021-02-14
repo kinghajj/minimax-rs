@@ -10,15 +10,14 @@ use rand::Rng;
 use std::cmp::max;
 use std::marker::PhantomData;
 
-fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
-                         depth: usize,
-                         mut alpha: Evaluation,
-                         beta: Evaluation)
-                         -> Evaluation
-    where <<E as Evaluator>::G as Game>::M: Copy
+fn negamax<E: Evaluator>(
+    s: &mut <E::G as Game>::S, depth: usize, mut alpha: Evaluation, beta: Evaluation,
+) -> Evaluation
+where
+    <<E as Evaluator>::G as Game>::M: Copy,
 {
     if let Some(winner) = E::G::get_winner(s) {
-	return winner.evaluate();
+        return winner.evaluate();
     }
     if depth == 0 {
         return E::evaluate(s);
@@ -33,7 +32,7 @@ fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S,
         best = max(best, value);
         alpha = max(alpha, value);
         if alpha >= beta {
-            break
+            break;
         }
     }
     best
@@ -53,17 +52,15 @@ pub struct Negamax<E> {
 
 impl<E: Evaluator> Negamax<E> {
     pub fn new(opts: Options) -> Negamax<E> {
-        Negamax {
-            opts: opts,
-            rng: rand::thread_rng(),
-            _eval: PhantomData,
-        }
+        Negamax { opts: opts, rng: rand::thread_rng(), _eval: PhantomData }
     }
 }
 
 impl<E: Evaluator> Strategy<E::G> for Negamax<E>
-    where <E::G as Game>::S: Clone,
-          <E::G as Game>::M: Copy {
+where
+    <E::G as Game>::S: Clone,
+    <E::G as Game>::M: Copy,
+{
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         let mut best = WORST_EVAL;
         let mut moves = [None; 200];
@@ -72,15 +69,12 @@ impl<E: Evaluator> Strategy<E::G> for Negamax<E>
         // We'll pick the first best score from this list.
         self.rng.shuffle(&mut moves[..n]);
 
-        let mut best_move = moves.iter().next()?.unwrap();
+        let mut best_move = (*moves.iter().next()?)?;
         let mut s_clone = s.clone();
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
             m.apply(&mut s_clone);
-            let value = -negamax::<E>(&mut s_clone,
-                                      self.opts.max_depth,
-                                      WORST_EVAL,
-                                      -best);
+            let value = -negamax::<E>(&mut s_clone, self.opts.max_depth, WORST_EVAL, -best);
             m.undo(&mut s_clone);
             // Strictly better than any move found so far.
             if value > best {
