@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter, Result};
 
 #[derive(Clone)]
 pub struct Board {
-    // Some bitboard ideas from github.com/PascalPons/connect4
+    // Some bitboard ideas from http://blog.gamesolver.org/solving-connect-four/06-bitboard/
     /* bit order example:
      * Leaves a blank row on top.
      *  5 12 19 26 33 40 47
@@ -126,28 +126,12 @@ impl minimax::Game for Game {
 
         // Detect pairs of two pieces in a row, then pairs of two pairs in a
         // row.
+        let matches = |shift| -> bool {
+            let pairs = pieces & (pieces >> shift);
+            pairs & (pairs >> 2 * shift) != 0
+        };
 
-        // Horizontal
-        let pairs = pieces & (pieces >> HEIGHT);
-        if pairs & (pairs >> (2 * HEIGHT)) != 0 {
-            return Some(minimax::Winner::PlayerJustMoved);
-        }
-
-        // Vertical
-        let pairs = pieces & (pieces >> 1);
-        if pairs & (pairs >> 2) != 0 {
-            return Some(minimax::Winner::PlayerJustMoved);
-        }
-
-        // Diagonal
-        let pairs = pieces & (pieces >> (HEIGHT - 1));
-        if pairs & (pairs >> (2 * (HEIGHT - 1))) != 0 {
-            return Some(minimax::Winner::PlayerJustMoved);
-        }
-
-        // Other diagonal
-        let pairs = pieces & (pieces >> (HEIGHT + 1));
-        if pairs & (pairs >> (2 * (HEIGHT + 1))) != 0 {
+        if matches(1) || matches(HEIGHT) || matches(HEIGHT + 1) || matches(HEIGHT - 1) {
             return Some(minimax::Winner::PlayerJustMoved);
         }
 
@@ -169,14 +153,90 @@ impl minimax::Evaluator for DumbEvaluator {
     }
 }
 
+impl Board {
+    // Return bitmap of all open locations that would complete a four in a row for the given player.
+    fn find_fourth_moves(&self, pieces: u64) -> u64 {
+        let mut all = self.all_pieces();
+        // Mark the fake row on top as full to prevent wrapping around.
+        let mut top_row = COL_MASK + 1;
+        for _ in 0..NUM_COLS {
+            all |= top_row;
+            top_row <<= HEIGHT;
+        }
+
+        let matches = |shift| -> u64 {
+            let pairs = pieces & (pieces >> shift); // Pairs of this color.
+            let singles = (pieces >> shift) & !all | (pieces << shift) & !all; // One of this color and one empty.
+            (pairs >> shift * 2) & singles | (pairs << shift * 2) & singles
+        };
+
+        // Vertical
+        matches(1) |
+	// Horizontal
+	matches(HEIGHT) |
+	// Diagonal
+	matches(HEIGHT+1) |
+	// Other diagonal
+	matches(HEIGHT-1)
+    }
+}
+
+pub struct BasicEvaluator;
+
+impl minimax::Evaluator for BasicEvaluator {
+    type G = Game;
+    fn evaluate(b: &Board) -> minimax::Evaluation {
+        let player_pieces = if b.reds_move { b.red_pieces } else { b.yellow_pieces };
+        let opponent_pieces = if b.reds_move { b.yellow_pieces } else { b.red_pieces };
+        let mut player_wins = b.find_fourth_moves(player_pieces);
+        let mut opponent_wins = b.find_fourth_moves(opponent_pieces);
+
+        let mut score = 0;
+        // Bonus points for moves in the middle columns.
+        for col in 2..5 {
+            score += ((player_pieces >> (HEIGHT * col)) & COL_MASK).count_ones() as i32;
+            score -= ((opponent_pieces >> (HEIGHT * col)) & COL_MASK).count_ones() as i32;
+        }
+
+        // Count columns that cause immediate win.
+        // Count columns that then allow immediate win.
+        let mut all = b.all_pieces();
+        for _ in 0..NUM_COLS {
+            let next_move = (all & COL_MASK) + 1;
+            if next_move > COL_MASK {
+                continue;
+            }
+            if next_move & player_wins != 0 {
+                score += 10;
+            }
+            if next_move & opponent_wins != 0 {
+                score -= 10;
+            }
+            let afterwards_move = next_move << 1;
+            if afterwards_move & player_wins != 0 {
+                score += 5;
+            }
+            if afterwards_move & opponent_wins != 0 {
+                score -= 5;
+            }
+
+            all >>= HEIGHT;
+            player_wins >>= HEIGHT;
+            opponent_wins >>= HEIGHT;
+        }
+
+        score
+    }
+}
+
 fn main() {
     use minimax::strategies::negamax::{Negamax, Options};
     use minimax::{Game, Move, Strategy};
 
     let mut b = Board::default();
-    let mut strategies = vec![
-        Negamax::<DumbEvaluator>::new(Options { max_depth: 8 }),
-        Negamax::<DumbEvaluator>::new(Options { max_depth: 8 }),
+    let mut strategies: [&mut dyn Strategy<self::Game>; 2] = [
+        &mut Negamax::<DumbEvaluator>::new(Options { max_depth: 8 }),
+        &mut Negamax::<BasicEvaluator>::new(Options { max_depth: 8 }),
     ];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
