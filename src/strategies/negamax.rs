@@ -10,6 +10,19 @@ use rand::Rng;
 use std::cmp::max;
 use std::marker::PhantomData;
 
+// For values near winning and losing values, push them slightly closer to zero.
+// A win in 3 moves (BEST-3) will be chosen over a win in 5 moves (BEST-5).
+// A loss in 5 moves (WORST+5) will be chosen over a loss in 3 moves (WORST+3).
+fn degrade_wins(value: Evaluation) -> Evaluation {
+    if value > BEST_EVAL - 100 {
+        value - 1
+    } else if value < WORST_EVAL + 100 {
+        value + 1
+    } else {
+        value
+    }
+}
+
 fn negamax<E: Evaluator>(
     s: &mut <E::G as Game>::S, depth: usize, mut alpha: Evaluation, beta: Evaluation,
 ) -> Evaluation
@@ -35,7 +48,7 @@ where
             break;
         }
     }
-    best
+    degrade_wins(best)
 }
 
 /// Options to use for the `Negamax` engine.
@@ -69,7 +82,7 @@ where
         // We'll pick the first best score from this list.
         self.rng.shuffle(&mut moves[..n]);
 
-        let mut best_move = (*moves.iter().next()?)?;
+        let mut best_move = moves[0]?;
         let mut s_clone = s.clone();
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
