@@ -1,8 +1,8 @@
-#![feature(test)]
+#[macro_use]
+extern crate bencher;
 extern crate minimax;
-extern crate test;
+use bencher::Bencher;
 use minimax::*;
-use test::Bencher;
 
 #[derive(Clone)]
 pub struct Board;
@@ -42,13 +42,15 @@ impl Evaluator for Eval {
     type G = Noop;
 
     fn evaluate(_: &Board) -> Evaluation {
-        Evaluation::Score(0)
+        0
     }
 }
 
-#[bench]
 fn bench_negamax(b: &mut Bencher) {
     let board = Board;
     let mut s = Negamax::<Eval>::new(Options { max_depth: 10 });
     b.iter(|| s.choose_move(&board));
 }
+
+benchmark_group!(benches, bench_negamax);
+benchmark_main!(benches);
