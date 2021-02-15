@@ -60,12 +60,25 @@ pub struct Options {
 pub struct Negamax<E> {
     opts: Options,
     rng: rand::ThreadRng,
+    prev_value: Evaluation,
     _eval: PhantomData<E>,
 }
 
 impl<E: Evaluator> Negamax<E> {
     pub fn new(opts: Options) -> Negamax<E> {
-        Negamax { opts: opts, rng: rand::thread_rng(), _eval: PhantomData }
+        Negamax { opts: opts, rng: rand::thread_rng(), prev_value: 0, _eval: PhantomData }
+    }
+
+    // Return the value computed for the root node for the last computation.
+    pub fn root_value(&self) -> Evaluation {
+        // Undo any value clamping.
+        if self.prev_value > BEST_EVAL - 100 {
+            BEST_EVAL
+        } else if self.prev_value < WORST_EVAL + 100 {
+            WORST_EVAL
+        } else {
+            self.prev_value
+        }
     }
 }
 
@@ -95,6 +108,7 @@ where
                 best_move = m;
             }
         }
+        self.prev_value = best;
         Some(best_move)
     }
 }

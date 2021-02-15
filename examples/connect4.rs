@@ -29,8 +29,16 @@ const HEIGHT: u32 = NUM_ROWS + 1;
 const COL_MASK: u64 = (1 << NUM_ROWS) - 1;
 
 impl Board {
-    fn all_pieces(&self) -> u64 {
+    pub fn all_pieces(&self) -> u64 {
         self.red_pieces | self.yellow_pieces
+    }
+
+    pub fn pieces_to_move(&self) -> u64 {
+        if self.reds_move {
+            self.red_pieces
+        } else {
+            self.yellow_pieces
+        }
     }
 }
 
@@ -229,6 +237,7 @@ impl minimax::Evaluator for BasicEvaluator {
     }
 }
 
+#[cfg(not(test))]
 fn main() {
     use minimax::strategies::negamax::{Negamax, Options};
     use minimax::{Game, Move, Strategy};
