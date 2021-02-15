@@ -86,7 +86,8 @@ impl minimax::Evaluator for RandomEvaluator {
             .wrapping_add(b.all_pieces())
             .wrapping_mul(0x18d9db91aa689617);
         hash = hash.wrapping_add(hash >> 31);
-        hash as minimax::Evaluation
+        // Use fewer bits so that we get some equal values.
+        (hash as minimax::Evaluation) >> 25
     }
 }
 
@@ -107,7 +108,7 @@ fn generate_random_state(depth: usize) -> connect4::Board {
 }
 
 #[test]
-fn compare_strategies() {
+fn compare_plain_negamax() {
     for _ in 0..10 {
         for max_depth in 0..5 {
             let b = generate_random_state(10);
@@ -121,6 +122,15 @@ fn compare_strategies() {
             negamax.choose_move(&b);
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
+
+            let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
+                minimax::IterativeOptions::default()
+                    .with_table_byte_size(64000)
+                    .with_max_depth(max_depth),
+            );
+            iterative.choose_move(&b);
+            let iterative_value = iterative.root_value();
+            assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);
         }
     }
 }

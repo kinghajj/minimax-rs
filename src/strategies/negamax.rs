@@ -1,8 +1,7 @@
 //! An implementation of Negamax.
 //!
-//! Currently, only the basic alpha-pruning variant is implemented. Further work
-//! could add advanced features, like history and/or transposition tables. This
-//! picks randomly among the "best" moves, so that it's non-deterministic.
+//! With only the basic alpha-pruning implemented. This picks randomly among
+//! the "best" moves, so that it's non-deterministic.
 
 use super::super::interface::*;
 use rand;

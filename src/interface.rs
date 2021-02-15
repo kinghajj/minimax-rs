@@ -61,6 +61,17 @@ impl Winner {
     }
 }
 
+/// An optional trait for game state types to support hashing.
+///
+/// Strategies that cache things by game state require this.
+pub trait Zobrist {
+    /// Hash of the game position.
+    ///
+    /// Expected to be pre-calculated and cheaply updated with each apply or
+    /// undo.
+    fn zobrist_hash(&self) -> u64;
+}
+
 /// Defines the rules for a two-player, perfect-knowledge game.
 ///
 /// A game ties together types for the state and moves, generates the possible

@@ -4,6 +4,7 @@ extern crate minimax;
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result};
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Board {
@@ -21,6 +22,7 @@ pub struct Board {
     yellow_pieces: u64,
     reds_move: bool,
     num_moves: u8,
+    hash: u64,
 }
 
 const NUM_COLS: u32 = 7;
@@ -40,11 +42,24 @@ impl Board {
             self.yellow_pieces
         }
     }
+
+    fn update_hash(&mut self, piece: u64) {
+        // Lookup the hash for this position and this color.
+        let position = piece.trailing_zeros() as usize;
+        let color = self.num_moves as usize & 1;
+        self.hash ^= HASHES[(position << 1) | color];
+    }
 }
 
 impl Default for Board {
     fn default() -> Board {
-        Board { red_pieces: 0, yellow_pieces: 0, reds_move: true, num_moves: 0 }
+        Board { red_pieces: 0, yellow_pieces: 0, reds_move: true, num_moves: 0, hash: 0 }
+    }
+}
+
+impl minimax::Zobrist for Board {
+    fn zobrist_hash(&self) -> u64 {
+        self.hash
     }
 }
 
@@ -70,7 +85,7 @@ impl Display for Board {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Place {
     col: u8,
 }
@@ -93,6 +108,7 @@ impl minimax::Move for Place {
         }
         b.reds_move = !b.reds_move;
         b.num_moves += 1;
+        b.update_hash(new_piece);
     }
 
     fn undo(&self, b: &mut Board) {
@@ -104,6 +120,7 @@ impl minimax::Move for Place {
         } else {
             b.yellow_pieces &= !prev_piece;
         }
+        b.update_hash(prev_piece);
         b.num_moves -= 1;
     }
 }
@@ -239,13 +256,17 @@ impl minimax::Evaluator for BasicEvaluator {
 
 #[cfg(not(test))]
 fn main() {
-    use minimax::strategies::negamax::{Negamax, Options};
     use minimax::{Game, Move, Strategy};
+    use minimax::{IterativeOptions, IterativeSearch, Negamax, Options};
 
     let mut b = Board::default();
+    let opts = IterativeOptions::default()
+        .with_table_byte_size(1_000_000)
+        .with_timeout(Duration::from_secs(1))
+        .with_max_depth(20);
     let mut strategies: [&mut dyn Strategy<self::Game>; 2] = [
         &mut Negamax::<DumbEvaluator>::new(Options { max_depth: 8 }),
-        &mut Negamax::<BasicEvaluator>::new(Options { max_depth: 8 }),
+        &mut IterativeSearch::<BasicEvaluator>::new(opts),
     ];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
@@ -263,3 +284,107 @@ fn main() {
     }
     println!("{}", b);
 }
+
+// There aren't that many positions per color, so just encode the zobrist hash statically.
+const HASHES: [u64; 100] = [
+    0x73399349585d196e,
+    0xe512dc15f0da3dd1,
+    0x4fbc1b81c6197db2,
+    0x16b5034810111a66,
+    0xa9a9d0183e33c311,
+    0xbb9d7bdea0dad2d6,
+    0x089d9205c11ca5c7,
+    0x18d9db91aa689617,
+    0x1336123120681e34,
+    0xc902e6c0bd6ef6bf,
+    0x16985ba0916238c1,
+    0x6144c3f2ab9f6dc4,
+    0xf24b4842de919a02,
+    0xdd6dd35ba0c150a1,
+    0x369a9de8ec3676e3,
+    0x2c366fb99be782d8,
+    0x24d3231335c0dbd6,
+    0x14048390c56e38f1,
+    0x55dfbc820f635186,
+    0x0dc98cb87372d5fa,
+    0xe3098781582027b4,
+    0x088158ec8202adca,
+    0x231df62376ad9514,
+    0xd3747fad069caeae,
+    0x4e4f26cb41d0c620,
+    0x06d0e37cd11b8f1c,
+    0xed33865175fbbdd2,
+    0xf1f52569481f0d8f,
+    0xfb6fd5c922e2127c,
+    0x6778bb0eba4a6649,
+    0xe35b853bdac1210b,
+    0x465a67712ec749a2,
+    0x83b1fd78e576fe72,
+    0xe84827644a5ccbe6,
+    0x89095321ce8e4d03,
+    0x298c529eecb0ec36,
+    0xe9dcc93d77cb49ad,
+    0xa7446daa1834c04a,
+    0x93f15442b434d550,
+    0x7f2a36dbf1cbce3f,
+    0x03365a42023b02b3,
+    0x101d87e850689cda,
+    0x113b31e2760d2050,
+    0x9cdb7b7394e1b0ae,
+    0xd04530b3b7daf3a3,
+    0x717e67aed6b4ffc9,
+    0x4ae564a3f3ca8b03,
+    0x07c50a4d89351437,
+    0x7f3b32175e5f37e0,
+    0x6e3599203bb50cd7,
+    0xcfe2319d4a6cfa73,
+    0xdbc6a398b10f5c3b,
+    0x9c1ba28ae655bbd1,
+    0x9dc87a426451941a,
+    0x691e618354a55cb5,
+    0x61b8cabbc575f4ba,
+    0x7e6f31f1818593d4,
+    0x9fa69e1ef4df8a9b,
+    0x5a9dc96c3cb18d8f,
+    0x65c4e9c0f40114f5,
+    0x4e66504db2d937cf,
+    0x4ebd6d097fe1e256,
+    0xfb10983e639af6b1,
+    0xcfbed7bd4032a59a,
+    0x1f47f6a95049fe4f,
+    0xbd461d202b879890,
+    0xfc050073b0c74cbe,
+    0x2923526a1f7092e9,
+    0x0b1d30bb6b960bc7,
+    0x632d12e4a9d0229d,
+    0x8d4ffd6ab37c6bfd,
+    0x561e36b8609b94ec,
+    0x32e8482c9e7ed80c,
+    0xaf62a119227b1029,
+    0x62cb2a585410c311,
+    0x7df3aeef90e1a0cb,
+    0xe6d5a176f8a1b180,
+    0x156e5162d8f2bef8,
+    0xee84c58f5ebbe811,
+    0xd32a1b4e24038bac,
+    0xeaa1dbdbdd7731f7,
+    0xedb554afd3d07cc6,
+    0xbc789444317d4d05,
+    0x0e23ce8f3d581fcd,
+    0xacb498d4569249a8,
+    0x843fb2519edc9f5a,
+    0xe222f0eb79436809,
+    0x7a88365f089ae80b,
+    0x2a0f08694d7ea84d,
+    0x09cad4dbfc990fa2,
+    0xfe5f27499de6b4f8,
+    0x3d8ed8ab1d44997f,
+    0x2af64deca431f644,
+    0xf2712b5274180c36,
+    0x30eeae3a821bf86c,
+    0x31c921831f06ad2f,
+    0x40683ff11655cd2f,
+    0xb78183a74cd6cb03,
+    0xde9e15a6f99bda2f,
+    0xa5293988641edb9b,
+];
