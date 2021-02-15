@@ -1,4 +1,5 @@
 //! A definition of the game Connect Four using the library, for use in tests and benchmarks.
+#![allow(dead_code)]
 
 extern crate minimax;
 
@@ -254,7 +255,6 @@ impl minimax::Evaluator for BasicEvaluator {
     }
 }
 
-#[cfg(not(test))]
 fn main() {
     use minimax::{Game, Move, Strategy};
     use minimax::{IterativeOptions, IterativeSearch, Negamax, Options};
