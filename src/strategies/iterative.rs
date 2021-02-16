@@ -75,9 +75,11 @@ impl<M> TranspositionTable<M> {
     }
 
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        let index = (hash as usize) & self.mask;
-        self.table[index] =
-            Entry { hash: hash, value: value, depth: depth, flag: flag, best_move: Some(best_move) }
+        if depth >= self.minimum_depth {
+            let index = (hash as usize) & self.mask;
+            self.table[index] =
+		Entry { hash: hash, value: value, depth: depth, flag: flag, best_move: Some(best_move) }
+	}
     }
 }
 
@@ -192,27 +194,24 @@ impl<E: Evaluator> IterativeSearch<E> {
 
         let alpha_orig = alpha;
         let hash = s.zobrist_hash();
-        // TODO: encapsulate in table func
         let mut good_move = None;
-        if depth >= self.transposition_table.minimum_depth {
-            if let Some(entry) = self.transposition_table.lookup(hash) {
-                good_move = entry.best_move;
-                self.table_hits += 1;
-                if entry.depth >= depth {
-                    match entry.flag {
-                        EntryFlag::Exact => {
-                            return Some(entry.value);
-                        }
-                        EntryFlag::Lowerbound => {
-                            alpha = max(alpha, entry.value);
-                        }
-                        EntryFlag::Upperbound => {
-                            beta = min(beta, entry.value);
-                        }
-                    }
-                    if alpha >= beta {
+        if let Some(entry) = self.transposition_table.lookup(hash) {
+            good_move = entry.best_move;
+            self.table_hits += 1;
+            if entry.depth >= depth {
+                match entry.flag {
+                    EntryFlag::Exact => {
                         return Some(entry.value);
                     }
+                    EntryFlag::Lowerbound => {
+                        alpha = max(alpha, entry.value);
+                    }
+                    EntryFlag::Upperbound => {
+                        beta = min(beta, entry.value);
+                    }
+                }
+                if alpha >= beta {
+                    return Some(entry.value);
                 }
             }
         }
@@ -243,17 +242,14 @@ impl<E: Evaluator> IterativeSearch<E> {
             }
         }
 
-        // TODO: encapsulate in table func
-        if depth >= self.transposition_table.minimum_depth {
-            let flag = if best <= alpha_orig {
-                EntryFlag::Upperbound
-            } else if best >= beta {
-                EntryFlag::Lowerbound
-            } else {
-                EntryFlag::Exact
-            };
-            self.transposition_table.store(hash, best, depth, flag, best_move);
-        }
+        let flag = if best <= alpha_orig {
+            EntryFlag::Upperbound
+        } else if best >= beta {
+            EntryFlag::Lowerbound
+        } else {
+            EntryFlag::Exact
+        };
+        self.transposition_table.store(hash, best, depth, flag, best_move);
 
         Some(best)
     }
