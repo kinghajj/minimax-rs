@@ -50,25 +50,19 @@ where
     degrade_wins(best)
 }
 
-/// Options to use for the `Negamax` engine.
-pub struct Options {
-    /// The maximum depth within the game tree.
-    pub max_depth: usize,
-}
-
 pub struct Negamax<E> {
-    opts: Options,
+    max_depth: usize,
     rng: rand::ThreadRng,
     prev_value: Evaluation,
     _eval: PhantomData<E>,
 }
 
 impl<E: Evaluator> Negamax<E> {
-    pub fn new(opts: Options) -> Negamax<E> {
-        Negamax { opts: opts, rng: rand::thread_rng(), prev_value: 0, _eval: PhantomData }
+    pub fn with_max_depth(depth: usize) -> Negamax<E> {
+        Negamax { max_depth: depth, rng: rand::thread_rng(), prev_value: 0, _eval: PhantomData }
     }
 
-    // Return the value computed for the root node for the last computation.
+    /// Return the value computed for the root node for the last computation.
     pub fn root_value(&self) -> Evaluation {
         // Undo any value clamping.
         if self.prev_value > BEST_EVAL - 100 {
@@ -99,7 +93,7 @@ where
         for m in moves.iter().take_while(|m| m.is_some()).map(|m| m.unwrap()) {
             // determine value for this move
             m.apply(&mut s_clone);
-            let value = -negamax::<E>(&mut s_clone, self.opts.max_depth, WORST_EVAL, -best);
+            let value = -negamax::<E>(&mut s_clone, self.max_depth, WORST_EVAL, -best);
             m.undo(&mut s_clone);
             // Strictly better than any move found so far.
             if value > best {

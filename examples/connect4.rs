@@ -257,7 +257,7 @@ impl minimax::Evaluator for BasicEvaluator {
 
 fn main() {
     use minimax::{Game, Move, Strategy};
-    use minimax::{IterativeOptions, IterativeSearch, Negamax, Options};
+    use minimax::{IterativeOptions, IterativeSearch, Negamax};
 
     let mut b = Board::default();
     let opts = IterativeOptions::default()
@@ -265,7 +265,7 @@ fn main() {
         .with_timeout(Duration::from_secs(1))
         .with_max_depth(20);
     let mut strategies: [&mut dyn Strategy<self::Game>; 2] = [
-        &mut Negamax::<DumbEvaluator>::new(Options { max_depth: 8 }),
+        &mut Negamax::<DumbEvaluator>::with_max_depth(8),
         &mut IterativeSearch::<BasicEvaluator>::new(opts),
     ];
     let mut s = 0;

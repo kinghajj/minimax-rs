@@ -236,13 +236,13 @@ impl minimax::Evaluator for Evaluator {
 }
 
 fn main() {
-    use minimax::strategies::negamax::{Negamax, Options};
+    use minimax::strategies::negamax::Negamax;
     use minimax::{Game, Move, Strategy};
 
     let mut b = Board::default();
     let mut strategies = vec![
-        Negamax::<Evaluator>::new(Options { max_depth: 10 }),
-        Negamax::<Evaluator>::new(Options { max_depth: 10 }),
+        Negamax::<Evaluator>::with_max_depth(10),
+        Negamax::<Evaluator>::with_max_depth(10),
     ];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {

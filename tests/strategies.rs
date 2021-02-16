@@ -118,7 +118,7 @@ fn compare_plain_negamax() {
             let value = plain_negamax.root_value;
 
             let mut negamax =
-                minimax::Negamax::<RandomEvaluator>::new(minimax::Options { max_depth: max_depth });
+                minimax::Negamax::<RandomEvaluator>::with_max_depth(max_depth);
             negamax.choose_move(&b);
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
