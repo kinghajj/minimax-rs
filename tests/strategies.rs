@@ -117,17 +117,15 @@ fn compare_plain_negamax() {
             plain_negamax.choose_move(&b);
             let value = plain_negamax.root_value;
 
-            let mut negamax =
-                minimax::Negamax::<RandomEvaluator>::with_max_depth(max_depth);
+            let mut negamax = minimax::Negamax::<RandomEvaluator>::with_max_depth(max_depth);
             negamax.choose_move(&b);
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
 
             let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
-                minimax::IterativeOptions::default()
-                    .with_table_byte_size(64000)
-                    .with_max_depth(max_depth),
+                minimax::IterativeOptions::new().with_table_byte_size(64000),
             );
+            iterative.set_max_depth(max_depth);
             iterative.choose_move(&b);
             let iterative_value = iterative.root_value();
             assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);

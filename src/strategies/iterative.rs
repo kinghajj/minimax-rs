@@ -42,13 +42,6 @@ struct Entry<M> {
     best_move: Option<M>,
 }
 
-/*
-impl<M> Default for Entry<M> {
-    fn default() -> Self {
-        Entry::<M> { hash: 0, value: 0, depth: 0, flag: EntryFlag::Exact, best_move: None }
-    }
-}*/
-
 struct TranspositionTable<M> {
     table: Vec<Entry<M>>,
     mask: usize,
@@ -68,7 +61,6 @@ impl<M> TranspositionTable<M> {
                 best_move: None,
             });
         }
-        //let table = vec![Entry::<M>::default(); size];
         Self { table: table, mask: size - 1, minimum_depth: 1 }
     }
 
@@ -92,28 +84,18 @@ impl<M> TranspositionTable<M> {
 /// Options to use for the iterative search engine.
 #[derive(Clone, Copy)]
 pub struct IterativeOptions {
-    max_depth: usize,
-    max_time: Duration,
     table_byte_size: usize,
+    // TODO: support more configuration of replacement strategy
+    // https://www.chessprogramming.org/Transposition_Table#Replacement_Strategies
 }
 
-impl Default for IterativeOptions {
-    fn default() -> Self {
-        IterativeOptions { max_depth: 5, max_time: Duration::new(0, 0), table_byte_size: 100_000 }
+impl IterativeOptions {
+    pub fn new() -> Self {
+        IterativeOptions { table_byte_size: 1_000_000 }
     }
 }
 
 impl IterativeOptions {
-    pub fn with_timeout(mut self, dur: Duration) -> Self {
-        self.max_time = dur;
-        self
-    }
-
-    pub fn with_max_depth(mut self, depth: usize) -> Self {
-        self.max_depth = depth;
-        self
-    }
-
     pub fn with_table_byte_size(mut self, size: usize) -> Self {
         self.table_byte_size = size;
         self
@@ -121,14 +103,8 @@ impl IterativeOptions {
 }
 
 pub struct IterativeSearch<E: Evaluator> {
-    // These are public so that they can be changed for each move, while
-    // reusing the table state between runs.
-    /// The maximum depth to search.
-    pub max_depth: usize,
-    /// When non-zero, the maximum time to compute the best move. When the
-    /// timeout is hit, it returns the best move found of the previous
-    /// iteration.
-    pub max_time: Duration,
+    max_depth: usize,
+    max_time: Duration,
     timeout: Arc<AtomicBool>,
     transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
     prev_value: Evaluation,
@@ -150,8 +126,8 @@ impl<E: Evaluator> IterativeSearch<E> {
     pub fn new(opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size);
         IterativeSearch {
-            max_depth: opts.max_depth,
-            max_time: opts.max_time,
+            max_depth: 100,
+            max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             transposition_table: table,
             prev_value: 0,
@@ -164,14 +140,30 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
     }
 
-    /// Return a human-readable summary of the last move generated.
+    /// Set the maximum depth to search. Disables the timeout.
+    /// This can be changed between moves while reusing the transposition table.
+    pub fn set_max_depth(&mut self, depth: usize) {
+        self.max_depth = depth;
+        self.max_time = Duration::new(0, 0);
+    }
+
+    /// The maximum time to compute the best move. When the timeout is hit, it
+    /// returns the best move found of the previous full iteration. Unlimited
+    /// max depth.
+    pub fn set_timeout(&mut self, max_time: Duration) {
+        self.max_time = max_time;
+        self.max_depth = 100;
+    }
+
+    /// Return a human-readable summary of the last move generation.
     pub fn stats(&self) -> String {
         let throughput =
             (self.nodes_explored + self.next_depth_nodes) as f64 / self.wall_time.as_secs_f64();
-        format!("Depth {} exploring {} nodes.\nPartial exploration of next depth explored {} nodes.\n{} transposition table hits.\n{:.01} nodes/sec",
-		self.actual_depth, self.nodes_explored, self.next_depth_nodes, self.table_hits, throughput)
+        format!("Explored {} nodes to depth {}.\nInterrupted exploration of next depth explored {} nodes.\n{} transposition table hits.\n{} nodes/sec",
+		self.nodes_explored, self.actual_depth, self.next_depth_nodes, self.table_hits, throughput as usize)
     }
 
+    /// Return the value computed for the root node for the last computation.
     pub fn root_value(&self) -> Evaluation {
         self.prev_value
     }

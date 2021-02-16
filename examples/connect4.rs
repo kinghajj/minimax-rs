@@ -260,14 +260,11 @@ fn main() {
     use minimax::{IterativeOptions, IterativeSearch, Negamax};
 
     let mut b = Board::default();
-    let opts = IterativeOptions::default()
-        .with_table_byte_size(1_000_000)
-        .with_timeout(Duration::from_secs(1))
-        .with_max_depth(20);
-    let mut strategies: [&mut dyn Strategy<self::Game>; 2] = [
-        &mut Negamax::<DumbEvaluator>::with_max_depth(8),
-        &mut IterativeSearch::<BasicEvaluator>::new(opts),
-    ];
+    let opts = IterativeOptions::new().with_table_byte_size(1_000_000);
+    let mut iterative = IterativeSearch::<BasicEvaluator>::new(opts);
+    iterative.set_timeout(Duration::from_secs(1));
+    let mut strategies: [&mut dyn Strategy<self::Game>; 2] =
+        [&mut Negamax::<DumbEvaluator>::with_max_depth(8), &mut iterative];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);
