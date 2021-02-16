@@ -80,10 +80,10 @@ impl minimax::Evaluator for RandomEvaluator {
     type G = connect4::Game;
     fn evaluate(b: &connect4::Board) -> minimax::Evaluation {
         // Scramble the game state to get a deterministically random Evaluation.
-        let mut hash = b.pieces_to_move().wrapping_mul(0xe512dc15f0da3dd1);
+        let mut hash = b.pieces_just_moved().wrapping_mul(0xe512dc15f0da3dd1);
         hash = hash
             .wrapping_add(hash >> 33)
-            .wrapping_add(b.all_pieces())
+            .wrapping_add(b.pieces_to_move)
             .wrapping_mul(0x18d9db91aa689617);
         hash = hash.wrapping_add(hash >> 31);
         // Use fewer bits so that we get some equal values.

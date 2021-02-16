@@ -19,9 +19,8 @@ pub struct Board {
      *  1  8 15 22 29 36 43
      *  0  7 14 21 28 35 42
      */
-    red_pieces: u64,
-    yellow_pieces: u64,
-    reds_move: bool,
+    all_pieces: u64,
+    pub pieces_to_move: u64,
     num_moves: u8,
     hash: u64,
 }
@@ -32,16 +31,12 @@ const HEIGHT: u32 = NUM_ROWS + 1;
 const COL_MASK: u64 = (1 << NUM_ROWS) - 1;
 
 impl Board {
-    pub fn all_pieces(&self) -> u64 {
-        self.red_pieces | self.yellow_pieces
+    fn reds_move(&self) -> bool {
+        self.num_moves & 1 == 0
     }
 
-    pub fn pieces_to_move(&self) -> u64 {
-        if self.reds_move {
-            self.red_pieces
-        } else {
-            self.yellow_pieces
-        }
+    pub fn pieces_just_moved(&self) -> u64 {
+        self.all_pieces ^ self.pieces_to_move
     }
 
     fn update_hash(&mut self, piece: u64) {
@@ -54,7 +49,7 @@ impl Board {
 
 impl Default for Board {
     fn default() -> Board {
-        Board { red_pieces: 0, yellow_pieces: 0, reds_move: true, num_moves: 0, hash: 0 }
+        Board { all_pieces: 0, pieces_to_move: 0, num_moves: 0, hash: 0 }
     }
 }
 
@@ -66,14 +61,18 @@ impl minimax::Zobrist for Board {
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter) -> Result {
+        let red_pieces =
+            if self.reds_move() { self.pieces_to_move } else { self.pieces_just_moved() };
+        let yellow_pieces =
+            if self.reds_move() { self.pieces_just_moved() } else { self.pieces_to_move };
         for row in (0..6).rev() {
             for col in 0..7 {
                 write!(
                     f,
                     "{}",
-                    if self.red_pieces >> (row + col * HEIGHT) & 1 != 0 {
+                    if red_pieces >> (row + col * HEIGHT) & 1 != 0 {
                         '\u{1F534}'
-                    } else if self.yellow_pieces >> (row + col * HEIGHT) & 1 != 0 {
+                    } else if yellow_pieces >> (row + col * HEIGHT) & 1 != 0 {
                         '\u{1F7E1}'
                     } else {
                         '\u{25ef}'
@@ -100,27 +99,21 @@ impl Place {
 impl minimax::Move for Place {
     type G = Game;
     fn apply(&self, b: &mut Board) {
-        let col = (b.all_pieces() >> self.col_shift()) & COL_MASK;
+        let col = (b.all_pieces >> self.col_shift()) & COL_MASK;
         let new_piece = (col + 1) << self.col_shift();
-        if b.reds_move {
-            b.red_pieces |= new_piece;
-        } else {
-            b.yellow_pieces |= new_piece;
-        }
-        b.reds_move = !b.reds_move;
+        // Swap colors
+        b.pieces_to_move ^= b.all_pieces;
+        b.all_pieces |= new_piece;
         b.num_moves += 1;
         b.update_hash(new_piece);
     }
 
     fn undo(&self, b: &mut Board) {
-        let col = (b.all_pieces() >> self.col_shift()) & COL_MASK;
+        let col = (b.all_pieces >> self.col_shift()) & COL_MASK;
         let prev_piece = (col ^ (col >> 1)) << self.col_shift();
-        b.reds_move = !b.reds_move;
-        if b.reds_move {
-            b.red_pieces &= !prev_piece;
-        } else {
-            b.yellow_pieces &= !prev_piece;
-        }
+        b.all_pieces &= !prev_piece;
+        // Swap colors
+        b.pieces_to_move ^= b.all_pieces;
         b.update_hash(prev_piece);
         b.num_moves -= 1;
     }
@@ -134,7 +127,7 @@ impl minimax::Game for Game {
 
     fn generate_moves(b: &Board, moves: &mut [Option<Place>]) -> usize {
         let mut n = 0;
-        let mut cols = b.all_pieces();
+        let mut cols = b.all_pieces;
         for i in 0..NUM_COLS {
             if cols & COL_MASK < COL_MASK {
                 moves[n] = Some(Place { col: i as u8 });
@@ -148,7 +141,7 @@ impl minimax::Game for Game {
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {
         // Position of pieces for the player that just moved.
-        let pieces = if b.reds_move { b.yellow_pieces } else { b.red_pieces };
+        let pieces = b.pieces_just_moved();
 
         // Detect pairs of two pieces in a row, then pairs of two pairs in a
         // row.
@@ -182,7 +175,7 @@ impl minimax::Evaluator for DumbEvaluator {
 impl Board {
     // Return bitmap of all open locations that would complete a four in a row for the given player.
     fn find_fourth_moves(&self, pieces: u64) -> u64 {
-        let mut all = self.all_pieces();
+        let mut all = self.all_pieces;
         // Mark the fake row on top as full to prevent wrapping around.
         let mut top_row = COL_MASK + 1;
         for _ in 0..NUM_COLS {
@@ -212,8 +205,8 @@ pub struct BasicEvaluator;
 impl minimax::Evaluator for BasicEvaluator {
     type G = Game;
     fn evaluate(b: &Board) -> minimax::Evaluation {
-        let player_pieces = if b.reds_move { b.red_pieces } else { b.yellow_pieces };
-        let opponent_pieces = if b.reds_move { b.yellow_pieces } else { b.red_pieces };
+        let player_pieces = b.pieces_to_move;
+        let opponent_pieces = b.pieces_just_moved();
         let mut player_wins = b.find_fourth_moves(player_pieces);
         let mut opponent_wins = b.find_fourth_moves(opponent_pieces);
 
@@ -226,7 +219,7 @@ impl minimax::Evaluator for BasicEvaluator {
 
         // Count columns that cause immediate win.
         // Count columns that then allow immediate win.
-        let mut all = b.all_pieces();
+        let mut all = b.all_pieces;
         for _ in 0..NUM_COLS {
             let next_move = (all & COL_MASK) + 1;
             if next_move > COL_MASK {
@@ -271,7 +264,7 @@ fn main() {
         let ref mut strategy = strategies[s];
         match strategy.choose_move(&mut b) {
             Some(m) => {
-                let color = if b.reds_move { "Red" } else { "Yellow" };
+                let color = if b.reds_move() { "Red" } else { "Yellow" };
                 println!("{} piece in column {}", color, m.col + 1);
                 m.apply(&mut b)
             }

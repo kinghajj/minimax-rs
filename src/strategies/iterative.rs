@@ -77,9 +77,14 @@ impl<M> TranspositionTable<M> {
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
         if depth >= self.minimum_depth {
             let index = (hash as usize) & self.mask;
-            self.table[index] =
-		Entry { hash: hash, value: value, depth: depth, flag: flag, best_move: Some(best_move) }
-	}
+            self.table[index] = Entry {
+                hash: hash,
+                value: value,
+                depth: depth,
+                flag: flag,
+                best_move: Some(best_move),
+            }
+        }
     }
 }
 
