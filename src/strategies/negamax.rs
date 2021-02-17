@@ -62,6 +62,7 @@ impl<E: Evaluator> Negamax<E> {
         Negamax { max_depth: depth, rng: rand::thread_rng(), prev_value: 0, _eval: PhantomData }
     }
 
+    #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         // Undo any value clamping.
         if self.prev_value > BEST_EVAL - 100 {

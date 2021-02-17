@@ -171,7 +171,7 @@ impl<E: Evaluator> IterativeSearch<E> {
 		self.nodes_explored, self.actual_depth, self.next_depth_nodes, self.table_hits, throughput as usize)
     }
 
-    /// Return the value computed for the root node for the last computation.
+    #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         self.prev_value
     }
