@@ -1,6 +1,6 @@
 //! The common structures and traits.
 
-/// An assessment of a game state from the perspective of the player about to move.
+/// An assessment of a game state from the perspective of the player whose turn it is to play.
 /// Higher values mean a more favorable state.
 /// A draw is defined as a score of zero.
 pub type Evaluation = i32;

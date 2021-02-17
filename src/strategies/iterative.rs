@@ -1,4 +1,4 @@
-//! An implementation of iterative search.
+//! An implementation of iterative deepening evaluation.
 //!
 //! Search and evaluate at depth 0, then start over at depth 1, then depth 2,
 //! etc. Can keep going until a maximum depth or maximum time or either. Uses
@@ -103,6 +103,7 @@ impl IterativeOptions {
 }
 
 impl IterativeOptions {
+    /// Approximately how large the transposition table should be in memory.
     pub fn with_table_byte_size(mut self, size: usize) -> Self {
         self.table_byte_size = size;
         self
@@ -154,9 +155,9 @@ impl<E: Evaluator> IterativeSearch<E> {
         self.max_time = Duration::new(0, 0);
     }
 
-    /// The maximum time to compute the best move. When the timeout is hit, it
-    /// returns the best move found of the previous full iteration. Unlimited
-    /// max depth.
+    /// Set the maximum time to compute the best move. When the timeout is
+    /// hit, it returns the best move found of the previous full
+    /// iteration. Unlimited max depth.
     pub fn set_timeout(&mut self, max_time: Duration) {
         self.max_time = max_time;
         self.max_depth = 100;
