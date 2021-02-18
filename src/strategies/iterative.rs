@@ -141,11 +141,16 @@ impl<M> TranspositionTable<M> {
 pub struct IterativeOptions {
     table_byte_size: usize,
     strategy: Replacement,
+    null_window_search: bool,
 }
 
 impl IterativeOptions {
     pub fn new() -> Self {
-        IterativeOptions { table_byte_size: 1_000_000, strategy: Replacement::TwoTier }
+        IterativeOptions {
+            table_byte_size: 1_000_000,
+            strategy: Replacement::TwoTier,
+            null_window_search: false,
+        }
     }
 }
 
@@ -155,9 +160,16 @@ impl IterativeOptions {
         self.table_byte_size = size;
         self
     }
+
     /// Approximately how large the transposition table should be in memory.
     pub fn with_replacement_strategy(mut self, strategy: Replacement) -> Self {
         self.strategy = strategy;
+        self
+    }
+
+    /// Whether to add null-window searches to try to prune branches without a full search.
+    pub fn with_null_window_search(mut self, null: bool) -> Self {
+        self.null_window_search = null;
         self
     }
 }
@@ -169,6 +181,8 @@ pub struct IterativeSearch<E: Evaluator> {
     transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
     prev_value: Evaluation,
     _eval: PhantomData<E>,
+
+    opts: IterativeOptions,
 
     // Runtime stats for the last move generated.
 
@@ -191,6 +205,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             timeout: Arc::new(AtomicBool::new(false)),
             transposition_table: table,
             prev_value: 0,
+            opts: opts,
             _eval: PhantomData,
             actual_depth: 0,
             nodes_explored: 0,
@@ -286,15 +301,31 @@ impl<E: Evaluator> IterativeSearch<E> {
 
         let mut best = WORST_EVAL;
         let mut best_move = moves[0].unwrap();
+        let mut null_window = false;
         for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
             m.apply(s);
-            let value = -self.negamax(s, depth - 1, -beta, -alpha)?;
+            let value = if null_window {
+                let probe = -self.negamax(s, depth - 1, -alpha - 1, -alpha)?;
+                if probe > alpha && probe < beta {
+                    // Full search fallback.
+                    -self.negamax(s, depth - 1, -beta, -alpha)?
+                } else {
+                    probe
+                }
+            } else {
+                -self.negamax(s, depth - 1, -beta, -alpha)?
+            };
             m.undo(s);
             if value > best {
                 best = value;
                 best_move = m;
             }
-            alpha = max(alpha, value);
+            if value > alpha {
+                alpha = value;
+                // Now that we've found a good move, assume following moves
+                // are worse, and seek to cull them without full evaluation.
+                null_window = self.opts.null_window_search;
+            }
             if alpha >= beta {
                 break;
             }
@@ -308,7 +339,6 @@ impl<E: Evaluator> IterativeSearch<E> {
             EntryFlag::Exact
         };
         self.transposition_table.store(hash, best, depth, flag, best_move);
-
         Some(best)
     }
 }

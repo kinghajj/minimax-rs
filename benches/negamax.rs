@@ -20,9 +20,7 @@ fn bench_iterative(b: &mut Bencher) {
     let board = connect4::Board::default();
     b.iter(|| {
         let mut s = IterativeSearch::<connect4::BasicEvaluator>::new(
-            IterativeOptions::new()
-                .with_table_byte_size(32_000)
-                .with_replacement_strategy(ReplacementStrategy::TwoTier),
+            IterativeOptions::new().with_table_byte_size(32_000).with_null_window_search(true),
         );
         s.set_max_depth(5);
         let m = s.choose_move(&board);

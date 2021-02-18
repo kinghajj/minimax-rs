@@ -130,7 +130,8 @@ fn compare_plain_negamax() {
                 let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
                     minimax::IterativeOptions::new()
                         .with_table_byte_size(64000)
-                        .with_replacement_strategy(strategy),
+                        .with_replacement_strategy(strategy)
+                        .with_null_window_search(true),
                 );
                 iterative.set_max_depth(max_depth);
                 iterative.choose_move(&b);
