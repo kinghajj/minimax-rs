@@ -25,6 +25,15 @@ fn timeout_signal(dur: Duration) -> Arc<AtomicBool> {
     signal
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+/// Strategies for when to overwrite entries in the transition table.
+pub enum Replacement {
+    Always,
+    DepthPreferred,
+    TwoTier,
+    // TODO: Bucket(size)
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum EntryFlag {
     Exact,
@@ -32,25 +41,30 @@ enum EntryFlag {
     Lowerbound,
 }
 
-// TODO: Optimize size.
+// TODO: Optimize size. Ideally 16 bytes or less.
 #[derive(Copy, Clone)]
 struct Entry<M> {
     hash: u64,
     value: Evaluation,
     depth: u8,
     flag: EntryFlag,
+    generation: u8,
     best_move: Option<M>,
 }
 
 struct TranspositionTable<M> {
     table: Vec<Entry<M>>,
     mask: usize,
-    minimum_depth: u8,
+    // Incremented for each iterative deepening run.
+    // Values from old generations are always overwritten.
+    generation: u8,
+    strategy: Replacement,
 }
 
 impl<M> TranspositionTable<M> {
-    fn new(table_byte_size: usize) -> Self {
+    fn new(table_byte_size: usize, strategy: Replacement) -> Self {
         let size = (table_byte_size / std::mem::size_of::<Entry<M>>()).next_power_of_two();
+        let mask = if strategy == Replacement::TwoTier { (size - 1) & !1 } else { size - 1 };
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
             table.push(Entry::<M> {
@@ -58,10 +72,15 @@ impl<M> TranspositionTable<M> {
                 value: 0,
                 depth: 0,
                 flag: EntryFlag::Exact,
+                generation: 0,
                 best_move: None,
             });
         }
-        Self { table: table, mask: size - 1, minimum_depth: 1 }
+        Self { table: table, mask: mask, generation: 0, strategy: strategy }
+    }
+
+    fn advance_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     fn lookup(&self, hash: u64) -> Option<&Entry<M>> {
@@ -69,19 +88,48 @@ impl<M> TranspositionTable<M> {
         let entry = &self.table[index];
         if hash == entry.hash {
             Some(entry)
+        } else if self.strategy == Replacement::TwoTier {
+            let entry = &self.table[index + 1];
+            if hash == entry.hash {
+                Some(entry)
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        if depth >= self.minimum_depth {
-            let index = (hash as usize) & self.mask;
+        let dest = match self.strategy {
+            Replacement::Always => Some((hash as usize) & self.mask),
+            Replacement::DepthPreferred => {
+                let index = (hash as usize) & self.mask;
+                let entry = &self.table[index];
+                if entry.generation != self.generation || entry.depth < depth {
+                    Some(index)
+                } else {
+                    None
+                }
+            }
+            Replacement::TwoTier => {
+                // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
+                let index = (hash as usize) & self.mask;
+                let entry = &self.table[index];
+                if entry.generation != self.generation || entry.depth < depth {
+                    Some(index)
+                } else {
+                    Some(index + 1)
+                }
+            }
+        };
+        if let Some(index) = dest {
             self.table[index] = Entry {
                 hash: hash,
                 value: value,
                 depth: depth,
                 flag: flag,
+                generation: self.generation,
                 best_move: Some(best_move),
             }
         }
@@ -92,13 +140,12 @@ impl<M> TranspositionTable<M> {
 #[derive(Clone, Copy)]
 pub struct IterativeOptions {
     table_byte_size: usize,
-    // TODO: support more configuration of replacement strategy
-    // https://www.chessprogramming.org/Transposition_Table#Replacement_Strategies
+    strategy: Replacement,
 }
 
 impl IterativeOptions {
     pub fn new() -> Self {
-        IterativeOptions { table_byte_size: 1_000_000 }
+        IterativeOptions { table_byte_size: 1_000_000, strategy: Replacement::TwoTier }
     }
 }
 
@@ -106,6 +153,11 @@ impl IterativeOptions {
     /// Approximately how large the transposition table should be in memory.
     pub fn with_table_byte_size(mut self, size: usize) -> Self {
         self.table_byte_size = size;
+        self
+    }
+    /// Approximately how large the transposition table should be in memory.
+    pub fn with_replacement_strategy(mut self, strategy: Replacement) -> Self {
+        self.strategy = strategy;
         self
     }
 }
@@ -132,7 +184,7 @@ pub struct IterativeSearch<E: Evaluator> {
 
 impl<E: Evaluator> IterativeSearch<E> {
     pub fn new(opts: IterativeOptions) -> IterativeSearch<E> {
-        let table = TranspositionTable::new(opts.table_byte_size);
+        let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
         IterativeSearch {
             max_depth: 100,
             max_time: Duration::from_secs(5),
@@ -267,6 +319,7 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        self.transposition_table.advance_generation();
         // Reset stats.
         self.nodes_explored = 0;
         self.next_depth_nodes = 0;

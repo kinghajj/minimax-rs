@@ -122,13 +122,25 @@ fn compare_plain_negamax() {
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
 
-            let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
-                minimax::IterativeOptions::new().with_table_byte_size(64000),
-            );
-            iterative.set_max_depth(max_depth);
-            iterative.choose_move(&b);
-            let iterative_value = iterative.root_value();
-            assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);
+            for &strategy in &[
+                minimax::Replacement::Always,
+                minimax::Replacement::DepthPreferred,
+                minimax::Replacement::TwoTier,
+            ] {
+                let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
+                    minimax::IterativeOptions::new()
+                        .with_table_byte_size(64000)
+                        .with_replacement_strategy(strategy),
+                );
+                iterative.set_max_depth(max_depth);
+                iterative.choose_move(&b);
+                let iterative_value = iterative.root_value();
+                assert_eq!(
+                    value, iterative_value,
+                    "search depth={}, strategy={:?}\n{}",
+                    max_depth, strategy, b
+                );
+            }
         }
     }
 }
