@@ -122,24 +122,30 @@ fn compare_plain_negamax() {
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
 
-            for &strategy in &[
-                minimax::Replacement::Always,
-                minimax::Replacement::DepthPreferred,
-                minimax::Replacement::TwoTier,
-            ] {
+            // Sampling of the configuration space.
+            for (option_num, opt) in vec![
+                minimax::IterativeOptions::new()
+                    .with_replacement_strategy(minimax::Replacement::DepthPreferred)
+                    .with_null_window_search(true),
+                minimax::IterativeOptions::new()
+                    .with_replacement_strategy(minimax::Replacement::Always)
+                    .with_double_step_increment(),
+                minimax::IterativeOptions::new()
+                    .with_replacement_strategy(minimax::Replacement::TwoTier),
+            ]
+            .drain(..)
+            .enumerate()
+            {
                 let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
-                    minimax::IterativeOptions::new()
-                        .with_table_byte_size(64000)
-                        .with_replacement_strategy(strategy)
-                        .with_null_window_search(true),
+                    opt.with_table_byte_size(64000),
                 );
                 iterative.set_max_depth(max_depth);
                 iterative.choose_move(&b);
                 let iterative_value = iterative.root_value();
                 assert_eq!(
                     value, iterative_value,
-                    "search depth={}, strategy={:?}\n{}",
-                    max_depth, strategy, b
+                    "search depth={}, option={}\n{}",
+                    max_depth, option_num, b
                 );
             }
         }

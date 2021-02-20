@@ -142,6 +142,7 @@ pub struct IterativeOptions {
     table_byte_size: usize,
     strategy: Replacement,
     null_window_search: bool,
+    step_increment: u8,
 }
 
 impl IterativeOptions {
@@ -150,6 +151,7 @@ impl IterativeOptions {
             table_byte_size: 1_000_000,
             strategy: Replacement::TwoTier,
             null_window_search: false,
+            step_increment: 1,
         }
     }
 }
@@ -170,6 +172,12 @@ impl IterativeOptions {
     /// Whether to add null-window searches to try to prune branches without a full search.
     pub fn with_null_window_search(mut self, null: bool) -> Self {
         self.null_window_search = null;
+        self
+    }
+
+    /// Increment the depth by two between iterations.
+    pub fn with_double_step_increment(mut self) -> Self {
+        self.step_increment = 2;
         self
     }
 }
@@ -367,7 +375,8 @@ where
         let mut s_clone = s.clone();
         let mut best_move = None;
 
-        for depth in 0..=self.max_depth as u8 {
+        let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        while depth <= self.max_depth as u8 {
             if self.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
@@ -379,6 +388,7 @@ where
             self.nodes_explored += self.next_depth_nodes;
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
+            depth += self.opts.step_increment;
         }
         self.wall_time = start_time.elapsed();
         best_move
