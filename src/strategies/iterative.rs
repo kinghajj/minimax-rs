@@ -343,6 +343,54 @@ impl<E: Evaluator> IterativeSearch<E> {
         Some(best)
     }
 
+    // Check and update negamax state based on any transposition table hit.
+    #[inline]
+    fn table_check(
+        &mut self, hash: u64, depth: u8, good_move: &mut Option<<E::G as Game>::M>,
+        alpha: &mut Evaluation, beta: &mut Evaluation,
+    ) -> Option<Evaluation>
+    where
+        <E::G as Game>::M: Copy,
+    {
+        if let Some(entry) = self.transposition_table.lookup(hash) {
+            *good_move = entry.best_move;
+            self.table_hits += 1;
+            if entry.depth >= depth {
+                match entry.flag {
+                    EntryFlag::Exact => {
+                        return Some(entry.value);
+                    }
+                    EntryFlag::Lowerbound => {
+                        *alpha = max(*alpha, entry.value);
+                    }
+                    EntryFlag::Upperbound => {
+                        *beta = min(*beta, entry.value);
+                    }
+                }
+                if *alpha >= *beta {
+                    return Some(entry.value);
+                }
+            }
+        }
+        None
+    }
+
+    // Update table based on negamax results.
+    #[inline(always)]
+    fn table_update(
+        &mut self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8,
+        best: Evaluation, best_move: <E::G as Game>::M,
+    ) {
+        let flag = if best <= alpha_orig {
+            EntryFlag::Upperbound
+        } else if best >= beta {
+            EntryFlag::Lowerbound
+        } else {
+            EntryFlag::Exact
+        };
+        self.transposition_table.store(hash, best, depth, flag, best_move);
+    }
+
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     fn negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
@@ -370,34 +418,19 @@ impl<E: Evaluator> IterativeSearch<E> {
         let alpha_orig = alpha;
         let hash = s.zobrist_hash();
         let mut good_move = None;
-        if let Some(entry) = self.transposition_table.lookup(hash) {
-            good_move = entry.best_move;
-            self.table_hits += 1;
-            if entry.depth >= depth {
-                match entry.flag {
-                    EntryFlag::Exact => {
-                        return Some(entry.value);
-                    }
-                    EntryFlag::Lowerbound => {
-                        alpha = max(alpha, entry.value);
-                    }
-                    EntryFlag::Upperbound => {
-                        beta = min(beta, entry.value);
-                    }
-                }
-                if alpha >= beta {
-                    return Some(entry.value);
-                }
-            }
+        if let Some(value) = self.table_check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
+            return Some(value);
         }
 
         let mut moves = [None; 200];
         let n = E::G::generate_moves(s, &mut moves);
-        // Rearrange so predicted good move is first.
-        for i in 0..n {
-            if moves[i] == good_move {
-                moves.swap(0, i);
-                break;
+        if good_move.is_some() {
+            // Rearrange so predicted good move is first.
+            for i in 0..n {
+                if moves[i] == good_move {
+                    moves.swap(0, i);
+                    break;
+                }
             }
         }
 
@@ -433,14 +466,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             }
         }
 
-        let flag = if best <= alpha_orig {
-            EntryFlag::Upperbound
-        } else if best >= beta {
-            EntryFlag::Lowerbound
-        } else {
-            EntryFlag::Exact
-        };
-        self.transposition_table.store(hash, best, depth, flag, best_move);
+        self.table_update(hash, alpha_orig, beta, depth, best, best_move);
         Some(best)
     }
 }
