@@ -34,7 +34,7 @@ pub enum Replacement {
     // TODO: Bucket(size)
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum EntryFlag {
     Exact,
     Upperbound,
@@ -208,6 +208,7 @@ pub struct IterativeSearch<E: Evaluator> {
     // Nodes explored past this depth, and thus this is thrown away work.
     next_depth_nodes: usize,
     table_hits: usize,
+    pv: Vec<<E::G as Game>::M>,
     wall_time: Duration,
 }
 
@@ -226,6 +227,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             nodes_explored: 0,
             next_depth_nodes: 0,
             table_hits: 0,
+            pv: Vec::new(),
             wall_time: Duration::default(),
         }
     }
@@ -256,6 +258,38 @@ impl<E: Evaluator> IterativeSearch<E> {
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         self.prev_value
+    }
+
+    // After finishing a search, populate the principal variation as deep as
+    // the table remembers it.
+    fn populate_pv(&mut self, s: &mut <E::G as Game>::S)
+    where
+        <E::G as Game>::S: Zobrist,
+        <E::G as Game>::M: Copy,
+    {
+        self.pv.clear();
+        let mut hash = s.zobrist_hash();
+        while let Some(m) =
+            self.transposition_table.lookup(hash).map(|entry| entry.best_move).flatten()
+        {
+            // The principal variation should only have exact nodes, as other
+            // node types are from cutoffs where the node is proven to be
+            // worse than a previously explored one.
+            // TODO: debug_assert_eq!(entry.flag, EntryFlag::Exact);
+            self.pv.push(m);
+            m.apply(s);
+            hash = s.zobrist_hash();
+        }
+        // Restore state.
+        for m in self.pv.iter().rev() {
+            m.undo(s);
+        }
+    }
+
+    /// Return what the engine considered to be the best sequence of moves
+    /// from both sides.
+    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
+        &self.pv[..]
     }
 
     fn check_noisy_search_capability(&mut self, s: &<E::G as Game>::S)
@@ -450,6 +484,7 @@ where
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
+            self.populate_pv(&mut s_clone);
         }
         self.wall_time = start_time.elapsed();
         best_move
