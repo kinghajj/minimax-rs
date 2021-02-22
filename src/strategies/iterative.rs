@@ -143,6 +143,7 @@ pub struct IterativeOptions {
     strategy: Replacement,
     null_window_search: bool,
     step_increment: u8,
+    max_quiescence_depth: u8,
 }
 
 impl IterativeOptions {
@@ -152,6 +153,7 @@ impl IterativeOptions {
             strategy: Replacement::TwoTier,
             null_window_search: false,
             step_increment: 1,
+            max_quiescence_depth: 0,
         }
     }
 }
@@ -178,6 +180,11 @@ impl IterativeOptions {
     /// Increment the depth by two between iterations.
     pub fn with_double_step_increment(mut self) -> Self {
         self.step_increment = 2;
+        self
+    }
+
+    pub fn with_quiescence_search_depth(mut self, depth: u8) -> Self {
+        self.max_quiescence_depth = depth;
         self
     }
 }
@@ -251,6 +258,57 @@ impl<E: Evaluator> IterativeSearch<E> {
         self.prev_value
     }
 
+    fn check_noisy_search_capability(&mut self, s: &<E::G as Game>::S)
+    where
+        <E::G as Game>::M: Copy,
+    {
+        if self.opts.max_quiescence_depth > 0 {
+            let mut moves = [None; 200];
+            if E::G::generate_noisy_moves(s, &mut moves).is_none() {
+                panic!("Quiescence search requested, but this game has not implemented generate_noisy_moves.");
+            }
+        }
+    }
+
+    // Negamax only among noisy moves.
+    fn noisy_negamax(
+        &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
+    ) -> Option<Evaluation>
+    where
+        <E::G as Game>::M: Copy,
+    {
+        if self.timeout.load(Ordering::Relaxed) {
+            return None;
+        }
+        if let Some(winner) = E::G::get_winner(s) {
+            return Some(winner.evaluate());
+        }
+        if depth == 0 {
+            return Some(E::evaluate(s));
+        }
+
+        let mut moves = [None; 200];
+        // Depth is only allowed to be >0 if this game supports noisy moves.
+        let n = E::G::generate_noisy_moves(s, &mut moves).unwrap();
+        if n == 0 {
+            // Only quiet moves remain, return leaf evaluation.
+            return Some(E::evaluate(s));
+        }
+
+        let mut best = WORST_EVAL;
+        for m in moves[..n].iter().map(|om| om.unwrap()) {
+            m.apply(s);
+            let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
+            m.undo(s);
+            best = max(best, value);
+            alpha = max(alpha, value);
+            if alpha >= beta {
+                break;
+            }
+        }
+        Some(best)
+    }
+
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     fn negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
@@ -266,11 +324,13 @@ impl<E: Evaluator> IterativeSearch<E> {
 
         self.next_depth_nodes += 1;
 
+        if depth == 0 {
+            // Evaluate quiescence search on leaf nodes.
+            // Will just return the node's evaluation if quiescence search is disabled.
+            return self.noisy_negamax(s, self.opts.max_quiescence_depth, alpha, beta);
+        }
         if let Some(winner) = E::G::get_winner(s) {
             return Some(winner.evaluate());
-        }
-        if depth == 0 {
-            return Some(E::evaluate(s));
         }
 
         let alpha_orig = alpha;
@@ -357,6 +417,7 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        self.check_noisy_search_capability(s);
         self.transposition_table.advance_generation();
         // Reset stats.
         self.nodes_explored = 0;

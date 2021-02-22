@@ -93,6 +93,20 @@ pub trait Game: Sized {
     /// maximum number of moves.
     fn generate_moves(&Self::S, &mut [Option<Self::M>]) -> usize;
 
+    /// Optional interface to support strategies using quiescence search.
+    ///
+    /// A "noisy" move is a threatening move that requires a response.
+    ///
+    /// The term comes from chess, where capturing a piece is considered a noisy
+    /// move. Capturing a piece is often the first move out of an exchange of
+    /// captures. Evaluating the board state after only the first capture can
+    /// give a misleadingly high score. The solution is to continue the search
+    /// among only noisy moves and find the score once the board state settles.
+    fn generate_noisy_moves(&Self::S, &mut [Option<Self::M>]) -> Option<usize> {
+        // Default implementation indicates unimplemented.
+        None
+    }
+
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if
     /// the state is non-terminal.
