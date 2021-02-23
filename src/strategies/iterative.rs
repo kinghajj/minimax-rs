@@ -5,6 +5,7 @@
 //! a transposition table to reuse information from previous iterations.
 
 use super::super::interface::*;
+use super::util::*;
 
 use std::cmp::{max, min};
 use std::marker::PhantomData;
@@ -257,7 +258,7 @@ impl<E: Evaluator> IterativeSearch<E> {
 
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
-        self.prev_value
+        unclamp_value(self.prev_value)
     }
 
     // After finishing a search, populate the principal variation as deep as
@@ -467,7 +468,7 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
 
         self.table_update(hash, alpha_orig, beta, depth, best, best_move);
-        Some(best)
+        Some(clamp_value(best))
     }
 }
 

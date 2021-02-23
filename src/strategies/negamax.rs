@@ -4,23 +4,11 @@
 //! the "best" moves, so that it's non-deterministic.
 
 use super::super::interface::*;
+use super::util::*;
 use rand;
 use rand::Rng;
 use std::cmp::max;
 use std::marker::PhantomData;
-
-// For values near winning and losing values, push them slightly closer to zero.
-// A win in 3 moves (BEST-3) will be chosen over a win in 5 moves (BEST-5).
-// A loss in 5 moves (WORST+5) will be chosen over a loss in 3 moves (WORST+3).
-fn degrade_wins(value: Evaluation) -> Evaluation {
-    if value > BEST_EVAL - 100 {
-        value - 1
-    } else if value < WORST_EVAL + 100 {
-        value + 1
-    } else {
-        value
-    }
-}
 
 fn negamax<E: Evaluator>(
     s: &mut <E::G as Game>::S, depth: usize, mut alpha: Evaluation, beta: Evaluation,
@@ -47,7 +35,7 @@ where
             break;
         }
     }
-    degrade_wins(best)
+    clamp_value(best)
 }
 
 pub struct Negamax<E> {
@@ -64,14 +52,7 @@ impl<E: Evaluator> Negamax<E> {
 
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
-        // Undo any value clamping.
-        if self.prev_value > BEST_EVAL - 100 {
-            BEST_EVAL
-        } else if self.prev_value < WORST_EVAL + 100 {
-            WORST_EVAL
-        } else {
-            self.prev_value
-        }
+        unclamp_value(self.prev_value)
     }
 }
 
