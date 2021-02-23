@@ -36,15 +36,17 @@ where
     best
 }
 
-pub struct PlainNegamax<E> {
+pub struct PlainNegamax<E: Evaluator> {
     depth: usize,
     root_value: Evaluation,
+    // All moves tied with the best valuation.
+    best_moves: Vec<<E::G as Game>::M>,
     _eval: PhantomData<E>,
 }
 
 impl<E: Evaluator> PlainNegamax<E> {
     pub fn new(depth: usize) -> PlainNegamax<E> {
-        PlainNegamax { depth: depth, root_value: 0, _eval: PhantomData }
+        PlainNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), _eval: PhantomData }
     }
 }
 
@@ -57,20 +59,23 @@ where
         let mut moves = [None; 200];
         let n = E::G::generate_moves(s, &mut moves);
 
-        let mut best_move = None;
+        self.best_moves.clear();
         let mut best_value = WORST_EVAL;
         let mut s_clone = s.clone();
         for m in moves[..n].iter().map(|m| m.unwrap()) {
             m.apply(&mut s_clone);
             let value = -negamax::<E>(&mut s_clone, self.depth);
             m.undo(&mut s_clone);
-            if value > best_value {
+            if value == best_value {
+                self.best_moves.push(m);
+            } else if value > best_value {
                 best_value = value;
-                best_move = Some(m);
+                self.best_moves.clear();
+                self.best_moves.push(m);
             }
         }
         self.root_value = best_value;
-        best_move
+        self.best_moves.first().map(|m| *m)
     }
 }
 
@@ -118,9 +123,16 @@ fn compare_plain_negamax() {
             let value = plain_negamax.root_value;
 
             let mut negamax = minimax::Negamax::<RandomEvaluator>::with_max_depth(max_depth);
-            negamax.choose_move(&b);
+            let negamax_move = negamax.choose_move(&b).unwrap();
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
+            assert!(
+                plain_negamax.best_moves.contains(&negamax_move),
+                "bad move={:?}\nsearch depth={}\n{}",
+                negamax_move,
+                max_depth,
+                b
+            );
 
             // Sampling of the configuration space.
             for (option_num, opt) in vec![
@@ -140,12 +152,19 @@ fn compare_plain_negamax() {
                     opt.with_table_byte_size(64000),
                 );
                 iterative.set_max_depth(max_depth);
-                iterative.choose_move(&b);
+                let iterative_move = iterative.choose_move(&b).unwrap();
                 let iterative_value = iterative.root_value();
                 assert_eq!(
                     value, iterative_value,
                     "search depth={}, option={}\n{}",
                     max_depth, option_num, b
+                );
+                assert!(
+                    plain_negamax.best_moves.contains(&iterative_move),
+                    "bad move={:?}\nsearch depth={}\n{}",
+                    iterative_move,
+                    max_depth,
+                    b
                 );
             }
         }

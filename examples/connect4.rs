@@ -85,7 +85,7 @@ impl Display for Board {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Place {
     col: u8,
 }
