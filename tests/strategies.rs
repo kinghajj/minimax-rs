@@ -114,7 +114,7 @@ fn generate_random_state(depth: usize) -> connect4::Board {
 
 #[test]
 fn compare_plain_negamax() {
-    for _ in 0..10 {
+    for _ in 0..100 {
         for max_depth in 0..5 {
             let b = generate_random_state(10);
 

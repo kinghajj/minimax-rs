@@ -107,7 +107,7 @@ impl<M> TranspositionTable<M> {
             Replacement::DepthPreferred => {
                 let index = (hash as usize) & self.mask;
                 let entry = &self.table[index];
-                if entry.generation != self.generation || entry.depth < depth {
+                if entry.generation != self.generation || entry.depth <= depth {
                     Some(index)
                 } else {
                     None
@@ -117,7 +117,7 @@ impl<M> TranspositionTable<M> {
                 // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
                 let index = (hash as usize) & self.mask;
                 let entry = &self.table[index];
-                if entry.generation != self.generation || entry.depth < depth {
+                if entry.generation != self.generation || entry.depth <= depth {
                     Some(index)
                 } else {
                     Some(index + 1)
@@ -274,7 +274,11 @@ impl<E: Evaluator> IterativeSearch<E> {
             // The principal variation should only have exact nodes, as other
             // node types are from cutoffs where the node is proven to be
             // worse than a previously explored one.
-            // TODO: debug_assert_eq!(entry.flag, EntryFlag::Exact);
+            //
+            // Sometimes, it takes multiple rounds of narrowing bounds for the
+            // value to be exact, and we can't guarantee that the table entry
+            // will remain in the table between the searches that find
+            // equivalent upper and lower bounds.
             let m = entry.best_move.unwrap();
             self.pv.push(m);
             m.apply(s);
