@@ -270,13 +270,12 @@ impl<E: Evaluator> IterativeSearch<E> {
     {
         self.pv.clear();
         let mut hash = s.zobrist_hash();
-        while let Some(m) =
-            self.transposition_table.lookup(hash).map(|entry| entry.best_move).flatten()
-        {
+        while let Some(entry) = self.transposition_table.lookup(hash) {
             // The principal variation should only have exact nodes, as other
             // node types are from cutoffs where the node is proven to be
             // worse than a previously explored one.
             // TODO: debug_assert_eq!(entry.flag, EntryFlag::Exact);
+            let m = entry.best_move.unwrap();
             self.pv.push(m);
             m.apply(s);
             hash = s.zobrist_hash();
@@ -444,7 +443,7 @@ impl<E: Evaluator> IterativeSearch<E> {
                 let probe = -self.negamax(s, depth - 1, -alpha - 1, -alpha)?;
                 if probe > alpha && probe < beta {
                     // Full search fallback.
-                    -self.negamax(s, depth - 1, -beta, -alpha)?
+                    -self.negamax(s, depth - 1, -beta, -probe)?
                 } else {
                     probe
                 }
