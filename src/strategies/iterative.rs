@@ -263,7 +263,7 @@ impl<E: Evaluator> IterativeSearch<E> {
 
     // After finishing a search, populate the principal variation as deep as
     // the table remembers it.
-    fn populate_pv(&mut self, s: &mut <E::G as Game>::S)
+    fn populate_pv(&mut self, s: &mut <E::G as Game>::S, mut depth: u8)
     where
         <E::G as Game>::S: Zobrist,
         <E::G as Game>::M: Copy,
@@ -283,6 +283,11 @@ impl<E: Evaluator> IterativeSearch<E> {
             self.pv.push(m);
             m.apply(s);
             hash = s.zobrist_hash();
+            // Prevent cyclical PVs from being infinitely long.
+            if depth == 0 {
+                break;
+            }
+            depth -= 1;
         }
         // Restore state.
         for m in self.pv.iter().rev() {
@@ -514,7 +519,7 @@ where
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
-            self.populate_pv(&mut s_clone);
+            self.populate_pv(&mut s_clone, depth + 1);
         }
         self.wall_time = start_time.elapsed();
         best_move
