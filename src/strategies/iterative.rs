@@ -152,7 +152,7 @@ impl IterativeOptions {
         IterativeOptions {
             table_byte_size: 1_000_000,
             strategy: Replacement::TwoTier,
-            null_window_search: false,
+            null_window_search: true,
             step_increment: 1,
             max_quiescence_depth: 0,
         }
@@ -166,13 +166,16 @@ impl IterativeOptions {
         self
     }
 
-    /// Approximately how large the transposition table should be in memory.
+    /// What rules to use when choosing whether to overwrite the current value
+    /// in the transposition table.
     pub fn with_replacement_strategy(mut self, strategy: Replacement) -> Self {
         self.strategy = strategy;
         self
     }
 
-    /// Whether to add null-window searches to try to prune branches without a full search.
+    /// Whether to add null-window searches to try to prune branches that are
+    /// probably worse than those already found. Also known as principal
+    /// variation search.
     pub fn with_null_window_search(mut self, null: bool) -> Self {
         self.null_window_search = null;
         self
@@ -184,6 +187,10 @@ impl IterativeOptions {
         self
     }
 
+    /// Enable [quiescence
+    /// search](https://en.wikipedia.org/wiki/Quiescence_search) at the leaves
+    /// of the search tree.  The Game must implement `generate_noisy_moves`
+    /// for the search to know when the state has become "quiet".
     pub fn with_quiescence_search_depth(mut self, depth: u8) -> Self {
         self.max_quiescence_depth = depth;
         self
