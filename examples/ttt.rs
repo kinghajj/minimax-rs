@@ -81,16 +81,12 @@ impl minimax::Game for Game {
     type S = Board;
     type M = Place;
 
-    fn generate_moves(b: &Board, ms: &mut [Option<Place>]) -> usize {
-        let mut j = 0;
+    fn generate_moves(b: &Board, ms: &mut Vec<Place>) {
         for i in 0..b.squares.len() {
             if b.squares[i] == Square::Empty {
-                ms[j] = Some(Place { i: i as u8 });
-                j += 1;
+                ms.push(Place { i: i as u8 });
             }
         }
-        ms[j] = None;
-        j
     }
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {

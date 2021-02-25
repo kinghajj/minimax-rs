@@ -125,18 +125,14 @@ impl minimax::Game for Game {
     type S = Board;
     type M = Place;
 
-    fn generate_moves(b: &Board, moves: &mut [Option<Place>]) -> usize {
-        let mut n = 0;
+    fn generate_moves(b: &Board, moves: &mut Vec<Place>) {
         let mut cols = b.all_pieces;
         for i in 0..NUM_COLS {
             if cols & COL_MASK < COL_MASK {
-                moves[n] = Some(Place { col: i as u8 });
-                n += 1;
+                moves.push(Place { col: i as u8 });
             }
             cols >>= HEIGHT;
         }
-        moves[n] = None;
-        n
     }
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {

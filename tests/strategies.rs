@@ -24,10 +24,10 @@ where
     if depth == 0 {
         return E::evaluate(s);
     }
-    let mut moves = [None; 200];
-    let n = E::G::generate_moves(s, &mut moves);
+    let mut moves = Vec::new();
+    E::G::generate_moves(s, &mut moves);
     let mut best = WORST_EVAL;
-    for m in moves[..n].iter().map(|m| m.unwrap()) {
+    for m in moves.iter() {
         m.apply(s);
         let value = -negamax::<E>(s, depth - 1);
         m.undo(s);
@@ -56,13 +56,13 @@ where
     <E::G as Game>::M: Copy,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
-        let mut moves = [None; 200];
-        let n = E::G::generate_moves(s, &mut moves);
+        let mut moves = Vec::new();
+        E::G::generate_moves(s, &mut moves);
 
         self.best_moves.clear();
         let mut best_value = WORST_EVAL;
         let mut s_clone = s.clone();
-        for m in moves[..n].iter().map(|m| m.unwrap()) {
+        for &m in moves.iter() {
             m.apply(&mut s_clone);
             let value = -negamax::<E>(&mut s_clone, self.depth);
             m.undo(&mut s_clone);
@@ -100,9 +100,9 @@ fn generate_random_state(depth: usize) -> connect4::Board {
     let mut rng = rand::thread_rng();
     let mut b = connect4::Board::default();
     for _ in 0..depth {
-        let mut moves = [None; 10];
-        let n = connect4::Game::generate_moves(&b, &mut moves);
-        let m = moves[rng.gen_range(0, n)].unwrap();
+        let mut moves = Vec::new();
+        connect4::Game::generate_moves(&b, &mut moves);
+        let m = moves[rng.gen_range(0, moves.len())];
         m.apply(&mut b);
         if connect4::Game::get_winner(&b).is_some() {
             // Oops, undo and try again on the next iter.

@@ -202,6 +202,7 @@ pub struct IterativeSearch<E: Evaluator> {
     max_time: Duration,
     timeout: Arc<AtomicBool>,
     transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
+    move_list_pool: Vec<Vec<<E::G as Game>::M>>,
     prev_value: Evaluation,
     _eval: PhantomData<E>,
 
@@ -228,6 +229,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             transposition_table: table,
+            move_list_pool: Vec::new(),
             prev_value: 0,
             opts: opts,
             _eval: PhantomData,
@@ -308,15 +310,25 @@ impl<E: Evaluator> IterativeSearch<E> {
         &self.pv[..]
     }
 
+    fn new_move_list(&mut self) -> Vec<<E::G as Game>::M> {
+        self.move_list_pool.pop().unwrap_or_else(|| Vec::new())
+    }
+
+    fn free_move_list(&mut self, mut move_list: Vec<<E::G as Game>::M>) {
+        move_list.clear();
+        self.move_list_pool.push(move_list);
+    }
+
     fn check_noisy_search_capability(&mut self, s: &<E::G as Game>::S)
     where
         <E::G as Game>::M: Copy,
     {
         if self.opts.max_quiescence_depth > 0 {
-            let mut moves = [None; 200];
-            if E::G::generate_noisy_moves(s, &mut moves).is_none() {
+            let mut moves = self.new_move_list();
+            if !E::G::generate_noisy_moves(s, &mut moves) {
                 panic!("Quiescence search requested, but this game has not implemented generate_noisy_moves.");
             }
+            self.free_move_list(moves);
         }
     }
 
@@ -337,16 +349,17 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(E::evaluate(s));
         }
 
-        let mut moves = [None; 200];
+        let mut moves = self.new_move_list();
         // Depth is only allowed to be >0 if this game supports noisy moves.
-        let n = E::G::generate_noisy_moves(s, &mut moves).unwrap();
-        if n == 0 {
+        E::G::generate_noisy_moves(s, &mut moves);
+        if moves.is_empty() {
             // Only quiet moves remain, return leaf evaluation.
+            self.free_move_list(moves);
             return Some(E::evaluate(s));
         }
 
         let mut best = WORST_EVAL;
-        for m in moves[..n].iter().map(|om| om.unwrap()) {
+        for m in moves.iter() {
             m.apply(s);
             let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
             m.undo(s);
@@ -356,6 +369,7 @@ impl<E: Evaluator> IterativeSearch<E> {
                 break;
             }
         }
+        self.free_move_list(moves);
         Some(best)
     }
 
@@ -438,12 +452,16 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(value);
         }
 
-        let mut moves = [None; 200];
-        let n = E::G::generate_moves(s, &mut moves);
-        if good_move.is_some() {
+        let mut moves = self.new_move_list();
+        E::G::generate_moves(s, &mut moves);
+        if moves.is_empty() {
+            self.free_move_list(moves);
+            return Some(WORST_EVAL);
+        }
+        if let Some(good) = good_move {
             // Rearrange so predicted good move is first.
-            for i in 0..n {
-                if moves[i] == good_move {
+            for i in 0..moves.len() {
+                if moves[i] == good {
                     moves.swap(0, i);
                     break;
                 }
@@ -451,9 +469,9 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
 
         let mut best = WORST_EVAL;
-        let mut best_move = moves[0].unwrap();
+        let mut best_move = moves[0];
         let mut null_window = false;
-        for m in moves.iter().take_while(|om| om.is_some()).map(|om| om.unwrap()) {
+        for &m in moves.iter() {
             m.apply(s);
             let value = if null_window {
                 let probe = -self.negamax(s, depth - 1, -alpha - 1, -alpha)?;
@@ -483,6 +501,7 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
 
         self.table_update(hash, alpha_orig, beta, depth, best, best_move);
+        self.free_move_list(moves);
         Some(clamp_value(best))
     }
 }

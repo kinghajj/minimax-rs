@@ -82,18 +82,11 @@ pub trait Game: Sized {
     /// The type of game moves.
     type M: Move<G = Self>;
 
-    /// Generate moves at the given state. After finishing, the next entry in
-    /// the slice should be set to `None` to indicate the end.  Returns the
-    /// number of moves generated.
-    ///
-    /// Currently, there's a deficiency that all strategies assume that at most
-    /// 200 moves may be generated for any position, which allows the underlying
-    /// memory for the slice to be a stack-allocated array. Once stable, this
-    /// trait will be extended with an associated constant to specify the
-    /// maximum number of moves.
-    fn generate_moves(&Self::S, &mut [Option<Self::M>]) -> usize;
+    /// Generate moves at the given state.
+    fn generate_moves(&Self::S, &mut Vec<Self::M>);
 
-    /// Optional interface to support strategies using quiescence search.
+    /// Optional interface to support strategies using quiescence
+    /// search. Return true when implemented.
     ///
     /// A "noisy" move is a threatening move that requires a response.
     ///
@@ -102,9 +95,9 @@ pub trait Game: Sized {
     /// captures. Evaluating the board state after only the first capture can
     /// give a misleadingly high score. The solution is to continue the search
     /// among only noisy moves and find the score once the board state settles.
-    fn generate_noisy_moves(&Self::S, &mut [Option<Self::M>]) -> Option<usize> {
+    fn generate_noisy_moves(&Self::S, &mut Vec<Self::M>) -> bool {
         // Default implementation indicates unimplemented.
-        None
+        false
     }
 
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,

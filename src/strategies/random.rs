@@ -19,10 +19,12 @@ where
     G::M: Copy,
 {
     fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
-        let mut moves: [Option<G::M>; 200] = [None; 200];
-        match G::generate_moves(s, &mut moves) {
-            0 => None,
-            num_moves => Some(moves[self.rng.gen_range(0, num_moves)].unwrap()),
+        let mut moves = Vec::new();
+        G::generate_moves(s, &mut moves);
+        if moves.is_empty() {
+            None
+        } else {
+            Some(moves[self.rng.gen_range(0, moves.len())])
         }
     }
 }
