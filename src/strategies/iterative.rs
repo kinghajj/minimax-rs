@@ -213,10 +213,14 @@ pub struct IterativeSearch<E: Evaluator> {
 
     // Maximum depth used to produce the move.
     actual_depth: u8,
-    // Nodes explored up to this depth.
-    nodes_explored: usize,
-    // Nodes explored past this depth, and thus this is thrown away work.
-    next_depth_nodes: usize,
+    // Nodes explored at each depth.
+    nodes_explored: Vec<u64>,
+    // Nodes explored past this depth, and thus only useful for filling TT for
+    // next choose_move.
+    next_depth_nodes: u64,
+    // For computing the average branching factor.
+    total_generate_move_calls: u64,
+    total_generated_moves: u64,
     table_hits: usize,
     pv: Vec<<E::G as Game>::M>,
     wall_time: Duration,
@@ -235,8 +239,10 @@ impl<E: Evaluator> IterativeSearch<E> {
             opts: opts,
             _eval: PhantomData,
             actual_depth: 0,
-            nodes_explored: 0,
+            nodes_explored: Vec::new(),
             next_depth_nodes: 0,
+            total_generate_move_calls: 0,
+            total_generated_moves: 0,
             table_hits: 0,
             pv: Vec::new(),
             wall_time: Duration::default(),
@@ -260,10 +266,16 @@ impl<E: Evaluator> IterativeSearch<E> {
 
     /// Return a human-readable summary of the last move generation.
     pub fn stats(&self) -> String {
+        let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
+        let mean_branching_factor =
+            self.total_generated_moves as f64 / self.total_generate_move_calls as f64;
+        let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
+            .powf((self.actual_depth as f64 + 1.0).recip());
         let throughput =
-            (self.nodes_explored + self.next_depth_nodes) as f64 / self.wall_time.as_secs_f64();
-        format!("Explored {} nodes to depth {}.\nInterrupted exploration of next depth explored {} nodes.\n{} transposition table hits.\n{} nodes/sec",
-		self.nodes_explored, self.actual_depth, self.next_depth_nodes, self.table_hits, throughput as usize)
+            (total_nodes_explored + self.next_depth_nodes) as f64 / self.wall_time.as_secs_f64();
+        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} transposition table hits.\n{} nodes/sec",
+		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
+		self.next_depth_nodes, self.table_hits, throughput as usize)
     }
 
     #[doc(hidden)]
@@ -446,6 +458,8 @@ impl<E: Evaluator> IterativeSearch<E> {
 
         let mut moves = self.move_pool.new();
         E::G::generate_moves(s, &mut moves);
+        self.total_generate_move_calls += 1;
+        self.total_generated_moves += moves.len() as u64;
         if moves.is_empty() {
             self.move_pool.free(moves);
             return Some(WORST_EVAL);
@@ -507,8 +521,10 @@ where
         self.check_noisy_search_capability(s);
         self.transposition_table.advance_generation();
         // Reset stats.
-        self.nodes_explored = 0;
+        self.nodes_explored.clear();
         self.next_depth_nodes = 0;
+        self.total_generate_move_calls = 0;
+        self.total_generated_moves = 0;
         self.actual_depth = 0;
         self.table_hits = 0;
         let start_time = Instant::now();
@@ -533,7 +549,7 @@ where
             best_move = entry.best_move;
 
             self.actual_depth = max(self.actual_depth, depth);
-            self.nodes_explored += self.next_depth_nodes;
+            self.nodes_explored.push(self.next_depth_nodes);
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
             depth += self.opts.step_increment;

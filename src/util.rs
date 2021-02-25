@@ -84,7 +84,7 @@ pub fn perft<G: Game>(state: &mut <G as Game>::S, max_depth: usize) -> Vec<u64> 
     println!("depth           count        time        kn/s");
     let mut pool = MovePool::<G::M>::default();
     let mut counts = Vec::new();
-    for depth in 0..max_depth+1 {
+    for depth in 0..max_depth + 1 {
         let start = Instant::now();
         let count = perft_recurse::<G>(&mut pool, state, depth);
         let dur = start.elapsed();
