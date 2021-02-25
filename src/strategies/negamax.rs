@@ -4,6 +4,7 @@
 //! the "best" moves, so that it's non-deterministic.
 
 use super::super::interface::*;
+use super::super::util::*;
 use super::util::*;
 use rand;
 use rand::Rng;
@@ -12,7 +13,7 @@ use std::marker::PhantomData;
 
 pub struct Negamax<E: Evaluator> {
     max_depth: usize,
-    move_list_pool: Vec<Vec<<E::G as Game>::M>>,
+    move_pool: MovePool<<E::G as Game>::M>,
     rng: rand::ThreadRng,
     prev_value: Evaluation,
     _eval: PhantomData<E>,
@@ -22,7 +23,7 @@ impl<E: Evaluator> Negamax<E> {
     pub fn with_max_depth(depth: usize) -> Negamax<E> {
         Negamax {
             max_depth: depth,
-            move_list_pool: Vec::new(),
+            move_pool: MovePool::<_>::default(),
             rng: rand::thread_rng(),
             prev_value: 0,
             _eval: PhantomData,
@@ -32,15 +33,6 @@ impl<E: Evaluator> Negamax<E> {
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         unclamp_value(self.prev_value)
-    }
-
-    fn new_move_list(&mut self) -> Vec<<E::G as Game>::M> {
-        self.move_list_pool.pop().unwrap_or_else(|| Vec::new())
-    }
-
-    fn free_move_list(&mut self, mut move_list: Vec<<E::G as Game>::M>) {
-        move_list.clear();
-        self.move_list_pool.push(move_list);
     }
 
     fn negamax(
@@ -55,7 +47,7 @@ impl<E: Evaluator> Negamax<E> {
         if depth == 0 {
             return E::evaluate(s);
         }
-        let mut moves = self.new_move_list();
+        let mut moves = self.move_pool.new();
         E::G::generate_moves(s, &mut moves);
         let mut best = WORST_EVAL;
         for m in moves.iter() {
@@ -68,7 +60,7 @@ impl<E: Evaluator> Negamax<E> {
                 break;
             }
         }
-        self.free_move_list(moves);
+        self.move_pool.free(moves);
         clamp_value(best)
     }
 }
@@ -80,7 +72,7 @@ where
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         let mut best = WORST_EVAL;
-        let mut moves = self.new_move_list();
+        let mut moves = self.move_pool.new();
         E::G::generate_moves(s, &mut moves);
         // Randomly permute order that we look at the moves.
         // We'll pick the first best score from this list.
@@ -99,7 +91,7 @@ where
                 best_move = m;
             }
         }
-        self.free_move_list(moves);
+        self.move_pool.free(moves);
         self.prev_value = best;
         Some(best_move)
     }

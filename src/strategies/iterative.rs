@@ -5,6 +5,7 @@
 //! a transposition table to reuse information from previous iterations.
 
 use super::super::interface::*;
+use super::super::util::*;
 use super::util::*;
 
 use std::cmp::{max, min};
@@ -202,7 +203,7 @@ pub struct IterativeSearch<E: Evaluator> {
     max_time: Duration,
     timeout: Arc<AtomicBool>,
     transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
-    move_list_pool: Vec<Vec<<E::G as Game>::M>>,
+    move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
     _eval: PhantomData<E>,
 
@@ -229,7 +230,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             transposition_table: table,
-            move_list_pool: Vec::new(),
+            move_pool: MovePool::<_>::default(),
             prev_value: 0,
             opts: opts,
             _eval: PhantomData,
@@ -310,25 +311,16 @@ impl<E: Evaluator> IterativeSearch<E> {
         &self.pv[..]
     }
 
-    fn new_move_list(&mut self) -> Vec<<E::G as Game>::M> {
-        self.move_list_pool.pop().unwrap_or_else(|| Vec::new())
-    }
-
-    fn free_move_list(&mut self, mut move_list: Vec<<E::G as Game>::M>) {
-        move_list.clear();
-        self.move_list_pool.push(move_list);
-    }
-
     fn check_noisy_search_capability(&mut self, s: &<E::G as Game>::S)
     where
         <E::G as Game>::M: Copy,
     {
         if self.opts.max_quiescence_depth > 0 {
-            let mut moves = self.new_move_list();
+            let mut moves = self.move_pool.new();
             if !E::G::generate_noisy_moves(s, &mut moves) {
                 panic!("Quiescence search requested, but this game has not implemented generate_noisy_moves.");
             }
-            self.free_move_list(moves);
+            self.move_pool.free(moves);
         }
     }
 
@@ -349,12 +341,12 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(E::evaluate(s));
         }
 
-        let mut moves = self.new_move_list();
+        let mut moves = self.move_pool.new();
         // Depth is only allowed to be >0 if this game supports noisy moves.
         E::G::generate_noisy_moves(s, &mut moves);
         if moves.is_empty() {
             // Only quiet moves remain, return leaf evaluation.
-            self.free_move_list(moves);
+            self.move_pool.free(moves);
             return Some(E::evaluate(s));
         }
 
@@ -369,7 +361,7 @@ impl<E: Evaluator> IterativeSearch<E> {
                 break;
             }
         }
-        self.free_move_list(moves);
+        self.move_pool.free(moves);
         Some(best)
     }
 
@@ -452,10 +444,10 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(value);
         }
 
-        let mut moves = self.new_move_list();
+        let mut moves = self.move_pool.new();
         E::G::generate_moves(s, &mut moves);
         if moves.is_empty() {
-            self.free_move_list(moves);
+            self.move_pool.free(moves);
             return Some(WORST_EVAL);
         }
         if let Some(good) = good_move {
@@ -501,7 +493,7 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
 
         self.table_update(hash, alpha_orig, beta, depth, best, best_move);
-        self.free_move_list(moves);
+        self.move_pool.free(moves);
         Some(clamp_value(best))
     }
 }

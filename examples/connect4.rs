@@ -5,7 +5,7 @@ extern crate minimax;
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Board {
@@ -244,26 +244,17 @@ impl minimax::Evaluator for BasicEvaluator {
     }
 }
 
-fn game_benchmark(strategy: &mut dyn minimax::Strategy<Game>) -> Duration {
-    // To not depend on deterministic moves, maybe trace the moves of a fixed game.
-    use minimax::{Game, Move};
-
-    let start = Instant::now();
-    let mut b = Board::default();
-    while self::Game::get_winner(&b).is_none() {
-        match strategy.choose_move(&mut b) {
-            Some(m) => m.apply(&mut b),
-            None => break,
-        }
-    }
-    start.elapsed()
-}
-
 fn main() {
-    use minimax::{Game, Move, Strategy};
+    use minimax::{perft, Game, Move, Strategy};
     use minimax::{IterativeOptions, IterativeSearch, Negamax};
 
     let mut b = Board::default();
+
+    if std::env::args().any(|arg| arg == "perft") {
+        perft::<self::Game>(&mut b, 10);
+        return;
+    }
+
     let opts = IterativeOptions::new()
         .with_table_byte_size(1_000_000)
         .with_replacement_strategy(minimax::Replacement::DepthPreferred);
