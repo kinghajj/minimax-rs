@@ -20,8 +20,8 @@ where
     let mut strategies: [&mut dyn interface::Strategy<G>; 2] = [s1, s2];
     let mut s = 0;
     while G::get_winner(&state).is_none() {
-        let ref mut strategy = strategies[s];
-        match strategy.choose_move(&mut state) {
+        let strategy = &mut strategies[s];
+        match strategy.choose_move(&state) {
             Some(m) => m.apply(&mut state),
             None => break,
         }
@@ -45,8 +45,8 @@ impl<M> Default for MovePool<M> {
 }
 
 impl<M> MovePool<M> {
-    pub(crate) fn new(&mut self) -> Vec<M> {
-        self.pool.pop().unwrap_or_else(|| Vec::new())
+    pub(crate) fn alloc(&mut self) -> Vec<M> {
+        self.pool.pop().unwrap_or_else(Vec::new)
     }
 
     pub(crate) fn free(&mut self, mut vec: Vec<M>) {
@@ -63,7 +63,7 @@ fn perft_recurse<G: Game>(pool: &mut MovePool<G::M>, state: &mut G::S, depth: us
         // Apparently perft rules only count positions at the target depth.
         return 0;
     }
-    let mut moves = pool.new();
+    let mut moves = pool.alloc();
     G::generate_moves(state, &mut moves);
     let n = if depth == 1 {
         moves.len() as u64

@@ -47,7 +47,7 @@ impl<E: Evaluator> Negamax<E> {
         if depth == 0 {
             return E::evaluate(s);
         }
-        let mut moves = self.move_pool.new();
+        let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);
         let mut best = WORST_EVAL;
         for m in moves.iter() {
@@ -72,7 +72,7 @@ where
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         let mut best = WORST_EVAL;
-        let mut moves = self.move_pool.new();
+        let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);
         // Randomly permute order that we look at the moves.
         // We'll pick the first best score from this list.

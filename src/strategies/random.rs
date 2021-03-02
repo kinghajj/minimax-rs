@@ -14,6 +14,12 @@ impl Random {
     }
 }
 
+impl Default for Random {
+    fn default() -> Self {
+	Random::new()
+    }
+}
+
 impl<G: Game> Strategy<G> for Random
 where
     G::M: Copy,

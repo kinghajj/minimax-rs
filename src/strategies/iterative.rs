@@ -78,7 +78,7 @@ impl<M> TranspositionTable<M> {
                 best_move: None,
             });
         }
-        Self { table: table, mask: mask, generation: 0, strategy: strategy }
+        Self { table, mask, generation: 0, strategy }
     }
 
     fn advance_generation(&mut self) {
@@ -127,10 +127,10 @@ impl<M> TranspositionTable<M> {
         };
         if let Some(index) = dest {
             self.table[index] = Entry {
-                hash: hash,
-                value: value,
-                depth: depth,
-                flag: flag,
+                hash,
+                value,
+                depth,
+                flag,
                 generation: self.generation,
                 best_move: Some(best_move),
             }
@@ -157,6 +157,12 @@ impl IterativeOptions {
             step_increment: 1,
             max_quiescence_depth: 0,
         }
+    }
+}
+
+impl Default for IterativeOptions {
+    fn default() -> Self {
+	Self::new()
     }
 }
 
@@ -236,7 +242,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             transposition_table: table,
             move_pool: MovePool::<_>::default(),
             prev_value: 0,
-            opts: opts,
+            opts,
             _eval: PhantomData,
             actual_depth: 0,
             nodes_explored: Vec::new(),
@@ -328,7 +334,7 @@ impl<E: Evaluator> IterativeSearch<E> {
         <E::G as Game>::M: Copy,
     {
         if self.opts.max_quiescence_depth > 0 {
-            let mut moves = self.move_pool.new();
+            let mut moves = self.move_pool.alloc();
             if !E::G::generate_noisy_moves(s, &mut moves) {
                 panic!("Quiescence search requested, but this game has not implemented generate_noisy_moves.");
             }
@@ -353,7 +359,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(E::evaluate(s));
         }
 
-        let mut moves = self.move_pool.new();
+        let mut moves = self.move_pool.alloc();
         // Depth is only allowed to be >0 if this game supports noisy moves.
         E::G::generate_noisy_moves(s, &mut moves);
         if moves.is_empty() {
@@ -456,7 +462,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(value);
         }
 
-        let mut moves = self.move_pool.new();
+        let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);
         self.total_generate_move_calls += 1;
         self.total_generated_moves += moves.len() as u64;
