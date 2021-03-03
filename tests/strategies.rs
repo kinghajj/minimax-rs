@@ -12,6 +12,8 @@ mod connect4;
 use minimax::interface::*;
 use rand::Rng;
 use std::cmp::max;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 
 pub struct PlainNegamax<E: Evaluator> {
     depth: usize,
@@ -89,13 +91,11 @@ impl Default for RandomEvaluator {
 impl minimax::Evaluator for RandomEvaluator {
     type G = connect4::Game;
     fn evaluate(&self, b: &connect4::Board) -> minimax::Evaluation {
-        // Scramble the game state to get a deterministically random Evaluation.
-        let mut hash = b.pieces_just_moved().wrapping_mul(0xe512dc15f0da3dd1);
-        hash = hash
-            .wrapping_add(hash >> 33)
-            .wrapping_add(b.pieces_to_move)
-            .wrapping_mul(0x18d9db91aa689617);
-        hash = hash.wrapping_add(hash >> 31);
+        // Hash the game state to get a deterministically random Evaluation.
+        let mut hasher = DefaultHasher::new();
+        hasher.write_u64(b.pieces_just_moved());
+        hasher.write_u64(b.pieces_to_move);
+        let hash = hasher.finish();
         // Use fewer bits so that we get some equal values.
         (hash as minimax::Evaluation) >> 25
     }
