@@ -31,9 +31,9 @@ pub trait Move {
     /// The type of game that the move affects.
     type G: Game;
     /// Change the state of `S` so that the move is applied.
-    fn apply(&self, &mut <Self::G as Game>::S);
+    fn apply(&self, state: &mut <Self::G as Game>::S);
     /// Revert the state of `S` so that the move is undone.
-    fn undo(&self, &mut <Self::G as Game>::S);
+    fn undo(&self, state: &mut <Self::G as Game>::S);
 }
 
 /// The result of playing a game until it finishes.
@@ -83,7 +83,7 @@ pub trait Game: Sized {
     type M: Move<G = Self>;
 
     /// Generate moves at the given state.
-    fn generate_moves(&Self::S, &mut Vec<Self::M>);
+    fn generate_moves(state: &Self::S, moves: &mut Vec<Self::M>);
 
     /// Optional interface to support strategies using quiescence search.
     ///
@@ -94,7 +94,7 @@ pub trait Game: Sized {
     /// captures. Evaluating the board state after only the first capture can
     /// give a misleadingly high score. The solution is to continue the search
     /// among only noisy moves and find the score once the board state settles.
-    fn generate_noisy_moves(&Self::S, &mut Vec<Self::M>) {
+    fn generate_noisy_moves(_state: &Self::S, _moves: &mut Vec<Self::M>) {
         // When unimplemented, there are no noisy moves and search terminates
         // immediately.
     }
@@ -102,10 +102,10 @@ pub trait Game: Sized {
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if
     /// the state is non-terminal.
-    fn get_winner(&Self::S) -> Option<Winner>;
+    fn get_winner(state: &Self::S) -> Option<Winner>;
 }
 
 /// Defines a method of choosing a move for the current player.
 pub trait Strategy<G: Game> {
-    fn choose_move(&mut self, &G::S) -> Option<G::M>;
+    fn choose_move(&mut self, state: &G::S) -> Option<G::M>;
 }
