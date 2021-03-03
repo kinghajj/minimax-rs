@@ -20,7 +20,7 @@ pub trait Evaluator {
     type G: Game;
     /// Evaluate the non-terminal state from the persective of the player to
     /// move next.
-    fn evaluate(s: &<Self::G as Game>::S) -> Evaluation;
+    fn evaluate(&self, s: &<Self::G as Game>::S) -> Evaluation;
 }
 
 /// Defines how a move affects the game state.

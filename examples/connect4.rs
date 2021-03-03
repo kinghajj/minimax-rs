@@ -163,7 +163,7 @@ pub struct DumbEvaluator;
 
 impl minimax::Evaluator for DumbEvaluator {
     type G = Game;
-    fn evaluate(_: &Board) -> minimax::Evaluation {
+    fn evaluate(&self, _: &Board) -> minimax::Evaluation {
         0
     }
 }
@@ -198,9 +198,15 @@ impl Board {
 
 pub struct BasicEvaluator;
 
+impl Default for BasicEvaluator {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 impl minimax::Evaluator for BasicEvaluator {
     type G = Game;
-    fn evaluate(b: &Board) -> minimax::Evaluation {
+    fn evaluate(&self, b: &Board) -> minimax::Evaluation {
         let player_pieces = b.pieces_to_move;
         let opponent_pieces = b.pieces_just_moved();
         let mut player_wins = b.find_fourth_moves(player_pieces);
@@ -258,10 +264,10 @@ fn main() {
     let opts = IterativeOptions::new()
         .with_table_byte_size(1_000_000)
         .with_replacement_strategy(minimax::Replacement::DepthPreferred);
-    let mut iterative = IterativeSearch::<BasicEvaluator>::new(opts);
+    let mut iterative = IterativeSearch::new(BasicEvaluator::default(), opts);
     iterative.set_timeout(Duration::from_secs(1));
     let mut strategies: [&mut dyn Strategy<self::Game>; 2] =
-        [&mut Negamax::<DumbEvaluator>::with_max_depth(8), &mut iterative];
+        [&mut Negamax::new(DumbEvaluator {}, 8), &mut iterative];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);

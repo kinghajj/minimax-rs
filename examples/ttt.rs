@@ -178,10 +178,16 @@ impl minimax::Move for Place {
 
 pub struct Evaluator;
 
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 impl minimax::Evaluator for Evaluator {
     type G = Game;
     // adapted from http://www.cs.olemiss.edu/~dwilkins/CSCI531/tic.c
-    fn evaluate(b: &Board) -> minimax::Evaluation {
+    fn evaluate(&self, b: &Board) -> minimax::Evaluation {
         let mut score = 0;
 
         // 3rd: check for doubles
@@ -237,7 +243,7 @@ fn main() {
 
     let mut b = Board::default();
     let mut strategies =
-        vec![Negamax::<Evaluator>::with_max_depth(10), Negamax::<Evaluator>::with_max_depth(10)];
+        vec![Negamax::new(Evaluator::default(), 10), Negamax::new(Evaluator::default(), 10)];
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);

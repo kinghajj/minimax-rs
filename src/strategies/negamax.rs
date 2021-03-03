@@ -6,27 +6,25 @@
 use super::super::interface::*;
 use super::super::util::*;
 use super::util::*;
-use rand;
 use rand::Rng;
 use std::cmp::max;
-use std::marker::PhantomData;
 
 pub struct Negamax<E: Evaluator> {
     max_depth: usize,
     move_pool: MovePool<<E::G as Game>::M>,
     rng: rand::ThreadRng,
     prev_value: Evaluation,
-    _eval: PhantomData<E>,
+    eval: E,
 }
 
 impl<E: Evaluator> Negamax<E> {
-    pub fn with_max_depth(depth: usize) -> Negamax<E> {
+    pub fn new(eval: E, depth: usize) -> Negamax<E> {
         Negamax {
             max_depth: depth,
             move_pool: MovePool::<_>::default(),
             rng: rand::thread_rng(),
             prev_value: 0,
-            _eval: PhantomData,
+            eval,
         }
     }
 
@@ -45,7 +43,7 @@ impl<E: Evaluator> Negamax<E> {
             return winner.evaluate();
         }
         if depth == 0 {
-            return E::evaluate(s);
+            return self.eval.evaluate(s);
         }
         let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);

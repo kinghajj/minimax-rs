@@ -12,41 +12,40 @@ mod connect4;
 use minimax::interface::*;
 use rand::Rng;
 use std::cmp::max;
-use std::marker::PhantomData;
-
-fn negamax<E: Evaluator>(s: &mut <E::G as Game>::S, depth: usize) -> Evaluation
-where
-    <<E as Evaluator>::G as Game>::M: Copy,
-{
-    if let Some(winner) = E::G::get_winner(s) {
-        return winner.evaluate();
-    }
-    if depth == 0 {
-        return E::evaluate(s);
-    }
-    let mut moves = Vec::new();
-    E::G::generate_moves(s, &mut moves);
-    let mut best = WORST_EVAL;
-    for m in moves.iter() {
-        m.apply(s);
-        let value = -negamax::<E>(s, depth - 1);
-        m.undo(s);
-        best = max(best, value);
-    }
-    best
-}
 
 pub struct PlainNegamax<E: Evaluator> {
     depth: usize,
     root_value: Evaluation,
     // All moves tied with the best valuation.
     best_moves: Vec<<E::G as Game>::M>,
-    _eval: PhantomData<E>,
+    eval: E,
 }
 
 impl<E: Evaluator> PlainNegamax<E> {
-    pub fn new(depth: usize) -> PlainNegamax<E> {
-        PlainNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), _eval: PhantomData }
+    pub fn new(eval: E, depth: usize) -> PlainNegamax<E> {
+        PlainNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), eval }
+    }
+
+    fn negamax(&self, s: &mut <E::G as Game>::S, depth: usize) -> Evaluation
+    where
+        <<E as Evaluator>::G as Game>::M: Copy,
+    {
+        if let Some(winner) = E::G::get_winner(s) {
+            return winner.evaluate();
+        }
+        if depth == 0 {
+            return self.eval.evaluate(s);
+        }
+        let mut moves = Vec::new();
+        E::G::generate_moves(s, &mut moves);
+        let mut best = WORST_EVAL;
+        for m in moves.iter() {
+            m.apply(s);
+            let value = -self.negamax(s, depth - 1);
+            m.undo(s);
+            best = max(best, value);
+        }
+        best
     }
 }
 
@@ -64,7 +63,7 @@ where
         let mut s_clone = s.clone();
         for &m in moves.iter() {
             m.apply(&mut s_clone);
-            let value = -negamax::<E>(&mut s_clone, self.depth);
+            let value = -self.negamax(&mut s_clone, self.depth);
             m.undo(&mut s_clone);
             if value == best_value {
                 self.best_moves.push(m);
@@ -81,9 +80,15 @@ where
 
 struct RandomEvaluator;
 
+impl Default for RandomEvaluator {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 impl minimax::Evaluator for RandomEvaluator {
     type G = connect4::Game;
-    fn evaluate(b: &connect4::Board) -> minimax::Evaluation {
+    fn evaluate(&self, b: &connect4::Board) -> minimax::Evaluation {
         // Scramble the game state to get a deterministically random Evaluation.
         let mut hash = b.pieces_just_moved().wrapping_mul(0xe512dc15f0da3dd1);
         hash = hash
@@ -118,11 +123,11 @@ fn compare_plain_negamax() {
         for max_depth in 0..5 {
             let b = generate_random_state(10);
 
-            let mut plain_negamax = PlainNegamax::<RandomEvaluator>::new(max_depth);
+            let mut plain_negamax = PlainNegamax::new(RandomEvaluator::default(), max_depth);
             plain_negamax.choose_move(&b);
             let value = plain_negamax.root_value;
 
-            let mut negamax = minimax::Negamax::<RandomEvaluator>::with_max_depth(max_depth);
+            let mut negamax = minimax::Negamax::new(RandomEvaluator, max_depth);
             let negamax_move = negamax.choose_move(&b).unwrap();
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
@@ -148,7 +153,8 @@ fn compare_plain_negamax() {
             .drain(..)
             .enumerate()
             {
-                let mut iterative = minimax::IterativeSearch::<RandomEvaluator>::new(
+                let mut iterative = minimax::IterativeSearch::new(
+                    RandomEvaluator::default(),
                     opt.with_table_byte_size(64000),
                 );
                 iterative.set_max_depth(max_depth);

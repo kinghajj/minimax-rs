@@ -10,7 +10,7 @@ use minimax::*;
 fn bench_negamax(b: &mut Bencher) {
     let board = connect4::Board::default();
     b.iter(|| {
-        let mut s = Negamax::<connect4::BasicEvaluator>::with_max_depth(5);
+        let mut s = Negamax::new(connect4::BasicEvaluator::default(), 5);
         let m = s.choose_move(&board);
         assert!(m.is_some());
     });
@@ -19,7 +19,8 @@ fn bench_negamax(b: &mut Bencher) {
 fn bench_iterative(b: &mut Bencher) {
     let board = connect4::Board::default();
     b.iter(|| {
-        let mut s = IterativeSearch::<connect4::BasicEvaluator>::new(
+        let mut s = IterativeSearch::new(
+            connect4::BasicEvaluator::default(),
             IterativeOptions::new().with_table_byte_size(32_000).with_null_window_search(true),
         );
         s.set_max_depth(5);

@@ -1,7 +1,6 @@
 //! A strategy that randomly chooses a move, for use in tests.
 
 use super::super::interface::*;
-use rand;
 use rand::Rng;
 
 pub struct Random {

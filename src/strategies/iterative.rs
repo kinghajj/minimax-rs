@@ -9,7 +9,6 @@ use super::super::util::*;
 use super::util::*;
 
 use std::cmp::{max, min};
-use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
@@ -211,7 +210,7 @@ pub struct IterativeSearch<E: Evaluator> {
     transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
     move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
-    _eval: PhantomData<E>,
+    eval: E,
 
     opts: IterativeOptions,
 
@@ -233,7 +232,7 @@ pub struct IterativeSearch<E: Evaluator> {
 }
 
 impl<E: Evaluator> IterativeSearch<E> {
-    pub fn new(opts: IterativeOptions) -> IterativeSearch<E> {
+    pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
         IterativeSearch {
             max_depth: 100,
@@ -243,7 +242,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             move_pool: MovePool::<_>::default(),
             prev_value: 0,
             opts,
-            _eval: PhantomData,
+            eval,
             actual_depth: 0,
             nodes_explored: Vec::new(),
             next_depth_nodes: 0,
@@ -343,7 +342,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             return Some(winner.evaluate());
         }
         if depth == 0 {
-            return Some(E::evaluate(s));
+            return Some(self.eval.evaluate(s));
         }
 
         let mut moves = self.move_pool.alloc();
@@ -351,7 +350,7 @@ impl<E: Evaluator> IterativeSearch<E> {
         if moves.is_empty() {
             // Only quiet moves remain, return leaf evaluation.
             self.move_pool.free(moves);
-            return Some(E::evaluate(s));
+            return Some(self.eval.evaluate(s));
         }
 
         let mut best = WORST_EVAL;
