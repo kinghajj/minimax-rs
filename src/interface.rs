@@ -85,8 +85,7 @@ pub trait Game: Sized {
     /// Generate moves at the given state.
     fn generate_moves(&Self::S, &mut Vec<Self::M>);
 
-    /// Optional interface to support strategies using quiescence
-    /// search. Return true when implemented.
+    /// Optional interface to support strategies using quiescence search.
     ///
     /// A "noisy" move is a threatening move that requires a response.
     ///
@@ -95,9 +94,9 @@ pub trait Game: Sized {
     /// captures. Evaluating the board state after only the first capture can
     /// give a misleadingly high score. The solution is to continue the search
     /// among only noisy moves and find the score once the board state settles.
-    fn generate_noisy_moves(&Self::S, &mut Vec<Self::M>) -> bool {
-        // Default implementation indicates unimplemented.
-        false
+    fn generate_noisy_moves(&Self::S, &mut Vec<Self::M>) {
+        // When unimplemented, there are no noisy moves and search terminates
+        // immediately.
     }
 
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,

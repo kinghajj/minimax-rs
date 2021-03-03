@@ -16,7 +16,7 @@ impl Random {
 
 impl Default for Random {
     fn default() -> Self {
-	Random::new()
+        Random::new()
     }
 }
 

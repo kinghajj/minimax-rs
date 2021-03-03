@@ -162,7 +162,7 @@ impl IterativeOptions {
 
 impl Default for IterativeOptions {
     fn default() -> Self {
-	Self::new()
+        Self::new()
     }
 }
 
@@ -329,19 +329,6 @@ impl<E: Evaluator> IterativeSearch<E> {
         &self.pv[..]
     }
 
-    fn check_noisy_search_capability(&mut self, s: &<E::G as Game>::S)
-    where
-        <E::G as Game>::M: Copy,
-    {
-        if self.opts.max_quiescence_depth > 0 {
-            let mut moves = self.move_pool.alloc();
-            if !E::G::generate_noisy_moves(s, &mut moves) {
-                panic!("Quiescence search requested, but this game has not implemented generate_noisy_moves.");
-            }
-            self.move_pool.free(moves);
-        }
-    }
-
     // Negamax only among noisy moves.
     fn noisy_negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
@@ -360,7 +347,6 @@ impl<E: Evaluator> IterativeSearch<E> {
         }
 
         let mut moves = self.move_pool.alloc();
-        // Depth is only allowed to be >0 if this game supports noisy moves.
         E::G::generate_noisy_moves(s, &mut moves);
         if moves.is_empty() {
             // Only quiet moves remain, return leaf evaluation.
@@ -524,7 +510,6 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
-        self.check_noisy_search_capability(s);
         self.transposition_table.advance_generation();
         // Reset stats.
         self.nodes_explored.clear();
