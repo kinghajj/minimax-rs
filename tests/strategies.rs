@@ -9,7 +9,7 @@ extern crate rand;
 #[path = "../examples/connect4.rs"]
 mod connect4;
 
-use minimax::interface::*;
+use minimax::*;
 use rand::Rng;
 use std::cmp::max;
 use std::collections::hash_map::DefaultHasher;
@@ -173,6 +173,22 @@ fn compare_plain_negamax() {
                     b
                 );
             }
+
+            let mut parallel = ParallelYbw::new(
+                RandomEvaluator::default(),
+                YbwOptions::default().with_table_byte_size(64000),
+            );
+            parallel.set_max_depth(max_depth);
+            let parallel_move = parallel.choose_move(&b).unwrap();
+            let parallel_value = parallel.root_value();
+            assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
+            assert!(
+                plain_negamax.best_moves.contains(&parallel_move),
+                "bad move={:?}\nsearch depth={}\n{}",
+                parallel_move,
+                max_depth,
+                b
+            );
         }
     }
 }
