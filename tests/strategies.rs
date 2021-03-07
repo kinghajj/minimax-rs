@@ -127,7 +127,7 @@ fn compare_plain_negamax() {
             plain_negamax.choose_move(&b);
             let value = plain_negamax.root_value;
 
-            let mut negamax = minimax::Negamax::new(RandomEvaluator, max_depth);
+            let mut negamax = Negamax::new(RandomEvaluator, max_depth);
             let negamax_move = negamax.choose_move(&b).unwrap();
             let negamax_value = negamax.root_value();
             assert_eq!(value, negamax_value, "search depth={}\n{}", max_depth, b);
@@ -141,19 +141,18 @@ fn compare_plain_negamax() {
 
             // Sampling of the configuration space.
             for (option_num, opt) in vec![
-                minimax::IterativeOptions::new()
-                    .with_replacement_strategy(minimax::Replacement::DepthPreferred)
+                IterativeOptions::new()
+                    .with_replacement_strategy(Replacement::DepthPreferred)
                     .with_null_window_search(true),
-                minimax::IterativeOptions::new()
-                    .with_replacement_strategy(minimax::Replacement::Always)
+                IterativeOptions::new()
+                    .with_replacement_strategy(Replacement::Always)
                     .with_double_step_increment(),
-                minimax::IterativeOptions::new()
-                    .with_replacement_strategy(minimax::Replacement::TwoTier),
+                IterativeOptions::new().with_replacement_strategy(Replacement::TwoTier),
             ]
             .drain(..)
             .enumerate()
             {
-                let mut iterative = minimax::IterativeSearch::new(
+                let mut iterative = IterativeSearch::new(
                     RandomEvaluator::default(),
                     opt.with_table_byte_size(64000),
                 );
@@ -189,6 +188,39 @@ fn compare_plain_negamax() {
                 max_depth,
                 b
             );
+        }
+    }
+}
+
+// The same test, but a deeper tree (without plain negamax) to try to expose
+// more parallelism in the parallel strategies.
+#[test]
+fn compare_deep_negamax() {
+    for _ in 0..10 {
+        for max_depth in 0..9 {
+            let b = generate_random_state(10);
+
+            let mut negamax = Negamax::new(RandomEvaluator, max_depth);
+            negamax.choose_move(&b).unwrap();
+            let value = negamax.root_value();
+
+            let mut iterative = IterativeSearch::new(
+                RandomEvaluator::default(),
+                IterativeOptions::new().with_table_byte_size(64000),
+            );
+            iterative.set_max_depth(max_depth);
+            iterative.choose_move(&b).unwrap();
+            let iterative_value = iterative.root_value();
+            assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);
+
+            let mut parallel = ParallelYbw::new(
+                RandomEvaluator::default(),
+                YbwOptions::default().with_table_byte_size(64000),
+            );
+            parallel.set_max_depth(max_depth);
+            parallel.choose_move(&b).unwrap();
+            let parallel_value = parallel.root_value();
+            assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
         }
     }
 }
