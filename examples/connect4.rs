@@ -5,7 +5,6 @@ extern crate minimax;
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result};
-use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Board {
@@ -252,7 +251,7 @@ impl minimax::Evaluator for BasicEvaluator {
 
 fn main() {
     use minimax::{perft, Game, Move, Strategy};
-    use minimax::{IterativeOptions, IterativeSearch, Negamax};
+    use minimax::{IterativeOptions, IterativeSearch, Negamax, ParallelYbw, YbwOptions};
 
     let mut b = Board::default();
 
@@ -261,13 +260,27 @@ fn main() {
         return;
     }
 
-    let opts = IterativeOptions::new()
-        .with_table_byte_size(1_000_000)
-        .with_replacement_strategy(minimax::Replacement::DepthPreferred);
+    let mut dumb = IterativeSearch::new(
+        BasicEvaluator::default(),
+        IterativeOptions::new().with_double_step_increment(),
+    );
+    dumb.set_max_depth(8);
+
+    let opts = IterativeOptions::new().with_table_byte_size(16_000_000);
     let mut iterative = IterativeSearch::new(BasicEvaluator::default(), opts);
-    iterative.set_timeout(Duration::from_secs(1));
-    let mut strategies: [&mut dyn Strategy<self::Game>; 2] =
-        [&mut Negamax::new(DumbEvaluator {}, 8), &mut iterative];
+    iterative.set_max_depth(12);
+    let mut parallel = ParallelYbw::new(
+        BasicEvaluator::default(),
+        YbwOptions::new().with_table_byte_size(16_000_000),
+    );
+    parallel.set_max_depth(12);
+    let mut strategies: [&mut dyn Strategy<self::Game>; 3] =
+        [&mut dumb, &mut iterative, &mut parallel];
+
+    if std::env::args().any(|arg| arg == "parallel") {
+        strategies.swap(1, 2);
+    }
+
     let mut s = 0;
     while self::Game::get_winner(&b).is_none() {
         println!("{}", b);
