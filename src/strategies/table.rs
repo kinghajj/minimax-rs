@@ -4,6 +4,7 @@ use crate::interface::*;
 use parking_lot::Mutex;
 use std::cmp::{max, min};
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 // Common transposition table stuff.
 
@@ -116,12 +117,30 @@ impl<M> ConcurrentTable<M> {
     }
 }
 
+impl<M: Copy> Table<M> for ConcurrentTable<M> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        self.concurrent_lookup(hash)
+    }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+}
+
+impl<M: Copy> Table<M> for Arc<ConcurrentTable<M>> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        self.concurrent_lookup(hash)
+    }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+}
+
 impl<M> ConcurrentTable<M>
 where
     M: Copy,
 {
     // Using two-tier table, look in the two adjacent slots
-    pub(super) fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+    pub(super) fn concurrent_lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         for i in index..index + 2 {
             let entry = self.table[i].lock();
@@ -132,7 +151,9 @@ where
         None
     }
 
-    fn store(&self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+    fn concurrent_store(
+        &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
+    ) {
         let table_gen = self.generation.load(Ordering::Relaxed);
         // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
         let index = (hash as usize) & self.mask;
@@ -149,37 +170,8 @@ where
         *self.table[index + 1].lock() = new_entry;
     }
 
-    // Check and update negamax state based on any transposition table hit.
-    // Returns Some(value) on an exact match.
-    // Returns None, updating mutable arguments, if Negamax should continue to explore this node.
-    pub(super) fn check(
-        &self, hash: u64, depth: u8, good_move: &mut Option<M>, alpha: &mut Evaluation,
-        beta: &mut Evaluation,
-    ) -> Option<Evaluation> {
-        if let Some(entry) = self.lookup(hash) {
-            *good_move = entry.best_move;
-            if entry.depth >= depth {
-                match entry.flag {
-                    EntryFlag::Exact => {
-                        return Some(entry.value);
-                    }
-                    EntryFlag::Lowerbound => {
-                        *alpha = max(*alpha, entry.value);
-                    }
-                    EntryFlag::Upperbound => {
-                        *beta = min(*beta, entry.value);
-                    }
-                }
-                if *alpha >= *beta {
-                    return Some(entry.value);
-                }
-            }
-        }
-        None
-    }
-
     // Update table based on negamax results.
-    pub(super) fn update(
+    pub(super) fn concurrent_update(
         &self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8, best: Evaluation,
         best_move: M,
     ) {
@@ -190,6 +182,6 @@ where
         } else {
             EntryFlag::Exact
         };
-        self.store(hash, best, depth, flag, best_move);
+        self.concurrent_store(hash, best, depth, flag, best_move);
     }
 }
