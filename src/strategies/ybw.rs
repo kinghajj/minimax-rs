@@ -161,40 +161,6 @@ impl<E: Evaluator> ParallelYbw<E> {
         unclamp_value(self.prev_value)
     }
 
-    // After finishing a search, populate the principal variation as deep as
-    // the table remembers it.
-    fn populate_pv(&mut self, s: &mut <E::G as Game>::S, mut depth: u8)
-    where
-        <E::G as Game>::S: Zobrist,
-        <E::G as Game>::M: Copy,
-    {
-        self.pv.clear();
-        let mut hash = s.zobrist_hash();
-        while let Some(entry) = self.table.lookup(hash) {
-            // The principal variation should only have exact nodes, as other
-            // node types are from cutoffs where the node is proven to be
-            // worse than a previously explored one.
-            //
-            // Sometimes, it takes multiple rounds of narrowing bounds for the
-            // value to be exact, and we can't guarantee that the table entry
-            // will remain in the table between the searches that find
-            // equivalent upper and lower bounds.
-            let m = entry.best_move.unwrap();
-            self.pv.push(m);
-            m.apply(s);
-            hash = s.zobrist_hash();
-            // Prevent cyclical PVs from being infinitely long.
-            if depth == 0 {
-                break;
-            }
-            depth -= 1;
-        }
-        // Restore state.
-        for m in self.pv.iter().rev() {
-            m.undo(s);
-        }
-    }
-
     /// Return what the engine considered to be the best sequence of moves
     /// from both sides.
     pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
@@ -374,7 +340,7 @@ impl<E: Evaluator> ParallelYbw<E> {
             best_move.into_inner().unwrap().into_inner()
         };
 
-        self.table.update(hash, alpha_orig, beta, depth, best, best_move);
+        self.table.concurrent_update(hash, alpha_orig, beta, depth, best, best_move);
         //self.move_pool.free(moves);
         Some(clamp_value(best))
     }
@@ -421,7 +387,7 @@ where
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
-            self.populate_pv(&mut s_clone, depth + 1);
+            self.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
         }
         self.wall_time = start_time.elapsed();
         best_move

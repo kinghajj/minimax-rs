@@ -82,6 +82,40 @@ pub(super) trait Table<M: Copy> {
         };
         self.store(hash, best, depth, flag, best_move);
     }
+
+    // After finishing a search, populate the principal variation as deep as
+    // the table remembers it.
+    fn populate_pv<G: Game>(&self, pv: &mut Vec<M>, s: &mut G::S, mut depth: u8)
+    where
+        M: Move<G = G>,
+        <G as Game>::S: Zobrist,
+    {
+        pv.clear();
+        let mut hash = s.zobrist_hash();
+        while let Some(entry) = self.lookup(hash) {
+            // The principal variation should only have exact nodes, as other
+            // node types are from cutoffs where the node is proven to be
+            // worse than a previously explored one.
+            //
+            // Sometimes, it takes multiple rounds of narrowing bounds for the
+            // value to be exact, and we can't guarantee that the table entry
+            // will remain in the table between the searches that find
+            // equivalent upper and lower bounds.
+            let m = entry.best_move.unwrap();
+            pv.push(m);
+            m.apply(s);
+            hash = s.zobrist_hash();
+            // Prevent cyclical PVs from being infinitely long.
+            if depth == 0 {
+                break;
+            }
+            depth -= 1;
+        }
+        // Restore state.
+        for m in pv.iter().rev() {
+            m.undo(s);
+        }
+    }
 }
 
 // It would be nice to unify most of the implementation of the single-threaded
