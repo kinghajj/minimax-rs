@@ -1,7 +1,9 @@
+extern crate parking_lot;
+
 use crate::interface::*;
+use parking_lot::Mutex;
 use std::cmp::{max, min};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Mutex;
 
 // Common transposition table stuff.
 
@@ -25,9 +27,9 @@ pub(super) struct Entry<M> {
 
 #[test]
 fn test_entry_size() {
-    // TODO
-    //assert!(std::mem::size_of::<Entry<u32>>() <= 20);
-    //assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 20);
+    // TODO: ratchet down
+    assert!(std::mem::size_of::<Entry<u32>>() <= 24);
+    assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 32);
 }
 
 // It would be nice to unify most of the implementation of the single-threaded
@@ -71,7 +73,7 @@ where
     pub(super) fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         for i in index..index + 2 {
-            let entry = self.table[i].lock().unwrap();
+            let entry = self.table[i].lock();
             if hash == entry.hash {
                 return Some(*entry);
             }
@@ -86,14 +88,14 @@ where
         let new_entry =
             Entry { hash, value, depth, flag, generation: table_gen, best_move: Some(best_move) };
         {
-            let mut entry = self.table[index].lock().unwrap();
+            let mut entry = self.table[index].lock();
             if entry.generation != table_gen || entry.depth <= depth {
                 *entry = new_entry;
                 return;
             }
         }
         // Otherwise, always overwrite second entry.
-        *self.table[index + 1].lock().unwrap() = new_entry;
+        *self.table[index + 1].lock() = new_entry;
     }
 
     // Check and update negamax state based on any transposition table hit.
