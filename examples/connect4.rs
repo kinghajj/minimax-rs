@@ -251,7 +251,7 @@ impl minimax::Evaluator for BasicEvaluator {
 
 fn main() {
     use minimax::{perft, Game, Move, Strategy};
-    use minimax::{IterativeOptions, IterativeSearch, Negamax, ParallelYbw, YbwOptions};
+    use minimax::{IterativeOptions, IterativeSearch, ParallelYbw, YbwOptions};
 
     let mut b = Board::default();
 

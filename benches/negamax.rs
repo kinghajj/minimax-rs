@@ -29,5 +29,18 @@ fn bench_iterative(b: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches, bench_negamax, bench_iterative);
+fn bench_parallel(b: &mut Bencher) {
+    let board = connect4::Board::default();
+    b.iter(|| {
+        let mut s = ParallelYbw::new(
+            connect4::BasicEvaluator::default(),
+            YbwOptions::new().with_table_byte_size(32_000).with_null_window_search(true),
+        );
+        s.set_max_depth(5);
+        let m = s.choose_move(&board);
+        assert!(m.is_some());
+    });
+}
+
+benchmark_group!(benches, bench_negamax, bench_iterative, bench_parallel);
 benchmark_main!(benches);
