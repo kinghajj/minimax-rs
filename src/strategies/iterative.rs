@@ -9,7 +9,7 @@ use super::super::util::*;
 use super::table::*;
 use super::util::*;
 
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,7 +32,7 @@ struct TranspositionTable<M> {
     strategy: Replacement,
 }
 
-impl<M> TranspositionTable<M> {
+impl<M: Copy> TranspositionTable<M> {
     fn new(table_byte_size: usize, strategy: Replacement) -> Self {
         let size = (table_byte_size / std::mem::size_of::<Entry<M>>()).next_power_of_two();
         let mask = if strategy == Replacement::TwoTier { (size - 1) & !1 } else { size - 1 };
@@ -53,16 +53,18 @@ impl<M> TranspositionTable<M> {
     fn advance_generation(&mut self) {
         self.generation = self.generation.wrapping_add(1);
     }
+}
 
-    fn lookup(&self, hash: u64) -> Option<&Entry<M>> {
+impl<M: Copy> Table<M> for TranspositionTable<M> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
         if hash == entry.hash {
-            Some(entry)
+            Some(*entry)
         } else if self.strategy == Replacement::TwoTier {
             let entry = &self.table[index + 1];
             if hash == entry.hash {
-                Some(entry)
+                Some(*entry)
             } else {
                 None
             }
@@ -201,7 +203,10 @@ pub struct IterativeSearch<E: Evaluator> {
     wall_time: Duration,
 }
 
-impl<E: Evaluator> IterativeSearch<E> {
+impl<E: Evaluator> IterativeSearch<E>
+where
+    <E::G as Game>::M: Copy,
+{
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
         IterativeSearch {
@@ -338,54 +343,6 @@ impl<E: Evaluator> IterativeSearch<E> {
         Some(best)
     }
 
-    // Check and update negamax state based on any transposition table hit.
-    #[inline]
-    fn table_check(
-        &mut self, hash: u64, depth: u8, good_move: &mut Option<<E::G as Game>::M>,
-        alpha: &mut Evaluation, beta: &mut Evaluation,
-    ) -> Option<Evaluation>
-    where
-        <E::G as Game>::M: Copy,
-    {
-        if let Some(entry) = self.transposition_table.lookup(hash) {
-            *good_move = entry.best_move;
-            self.table_hits += 1;
-            if entry.depth >= depth {
-                match entry.flag {
-                    EntryFlag::Exact => {
-                        return Some(entry.value);
-                    }
-                    EntryFlag::Lowerbound => {
-                        *alpha = max(*alpha, entry.value);
-                    }
-                    EntryFlag::Upperbound => {
-                        *beta = min(*beta, entry.value);
-                    }
-                }
-                if *alpha >= *beta {
-                    return Some(entry.value);
-                }
-            }
-        }
-        None
-    }
-
-    // Update table based on negamax results.
-    #[inline(always)]
-    fn table_update(
-        &mut self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8,
-        best: Evaluation, best_move: <E::G as Game>::M,
-    ) {
-        let flag = if best <= alpha_orig {
-            EntryFlag::Upperbound
-        } else if best >= beta {
-            EntryFlag::Lowerbound
-        } else {
-            EntryFlag::Exact
-        };
-        self.transposition_table.store(hash, best, depth, flag, best_move);
-    }
-
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     fn negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
@@ -413,7 +370,9 @@ impl<E: Evaluator> IterativeSearch<E> {
         let alpha_orig = alpha;
         let hash = s.zobrist_hash();
         let mut good_move = None;
-        if let Some(value) = self.table_check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
+        if let Some(value) =
+            self.transposition_table.check(hash, depth, &mut good_move, &mut alpha, &mut beta)
+        {
             return Some(value);
         }
 
@@ -467,7 +426,7 @@ impl<E: Evaluator> IterativeSearch<E> {
             }
         }
 
-        self.table_update(hash, alpha_orig, beta, depth, best, best_move);
+        self.transposition_table.update(hash, alpha_orig, beta, depth, best, best_move);
         self.move_pool.free(moves);
         Some(clamp_value(best))
     }

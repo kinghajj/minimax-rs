@@ -32,6 +32,57 @@ fn test_entry_size() {
     assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 32);
 }
 
+// A trait for a transposition table. The methods are mutual exclusion, but
+// the idea is that an implementation can wrap a shared concurrent table.
+pub(super) trait Table<M: Copy> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>>;
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M);
+
+    // Check and update negamax state based on any transposition table hit.
+    // Returns Some(value) on an exact match.
+    // Returns None, updating mutable arguments, if Negamax should continue to explore this node.
+    fn check(
+        &self, hash: u64, depth: u8, good_move: &mut Option<M>, alpha: &mut Evaluation,
+        beta: &mut Evaluation,
+    ) -> Option<Evaluation> {
+        if let Some(entry) = self.lookup(hash) {
+            *good_move = entry.best_move;
+            if entry.depth >= depth {
+                match entry.flag {
+                    EntryFlag::Exact => {
+                        return Some(entry.value);
+                    }
+                    EntryFlag::Lowerbound => {
+                        *alpha = max(*alpha, entry.value);
+                    }
+                    EntryFlag::Upperbound => {
+                        *beta = min(*beta, entry.value);
+                    }
+                }
+                if *alpha >= *beta {
+                    return Some(entry.value);
+                }
+            }
+        }
+        None
+    }
+
+    // Update table based on negamax results.
+    fn update(
+        &mut self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8,
+        best: Evaluation, best_move: M,
+    ) {
+        let flag = if best <= alpha_orig {
+            EntryFlag::Upperbound
+        } else if best >= beta {
+            EntryFlag::Lowerbound
+        } else {
+            EntryFlag::Exact
+        };
+        self.store(hash, best, depth, flag, best_move);
+    }
+}
+
 // It would be nice to unify most of the implementation of the single-threaded
 // and concurrent tables, but the methods need different signatures.
 pub(super) struct ConcurrentTable<M> {
