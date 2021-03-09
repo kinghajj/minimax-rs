@@ -38,6 +38,7 @@ fn test_entry_size() {
 pub(super) trait Table<M: Copy> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>>;
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M);
+    fn advance_generation(&mut self);
 
     // Check and update negamax state based on any transposition table hit.
     // Returns Some(value) on an exact match.
@@ -146,7 +147,7 @@ impl<M> ConcurrentTable<M> {
         Self { table, mask, generation: AtomicU8::new(0) }
     }
 
-    pub(super) fn advance_generation(&self) {
+    pub(super) fn concurrent_advance_generation(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -158,6 +159,9 @@ impl<M: Copy> Table<M> for ConcurrentTable<M> {
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
         self.concurrent_store(hash, value, depth, flag, best_move)
     }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
 }
 
 impl<M: Copy> Table<M> for Arc<ConcurrentTable<M>> {
@@ -166,6 +170,9 @@ impl<M: Copy> Table<M> for Arc<ConcurrentTable<M>> {
     }
     fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
         self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
     }
 }
 

@@ -49,10 +49,6 @@ impl<M: Copy> TranspositionTable<M> {
         }
         Self { table, mask, generation: 0, strategy }
     }
-
-    fn advance_generation(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-    }
 }
 
 impl<M: Copy> Table<M> for TranspositionTable<M> {
@@ -106,6 +102,10 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
                 best_move: Some(best_move),
             }
         }
+    }
+
+    fn advance_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 }
 
@@ -175,107 +175,30 @@ impl IterativeOptions {
     }
 }
 
-pub struct IterativeSearch<E: Evaluator> {
-    max_depth: usize,
-    max_time: Duration,
+pub(super) struct Negamaxer<E: Evaluator, T> {
     timeout: Arc<AtomicBool>,
-    transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
+    table: T,
     move_pool: MovePool<<E::G as Game>::M>,
-    prev_value: Evaluation,
     eval: E,
 
-    opts: IterativeOptions,
+    // Config
+    max_quiescence_depth: u8,
+    null_window_search: bool,
 
-    // Runtime stats for the last move generated.
-
-    // Maximum depth used to produce the move.
-    actual_depth: u8,
-    // Nodes explored at each depth.
-    nodes_explored: Vec<u64>,
-    // Nodes explored past this depth, and thus only useful for filling TT for
-    // next choose_move.
-    next_depth_nodes: u64,
-    // For computing the average branching factor.
+    // Stats
+    nodes_explored: u64,
     total_generate_move_calls: u64,
     total_generated_moves: u64,
-    table_hits: usize,
-    pv: Vec<<E::G as Game>::M>,
-    wall_time: Duration,
 }
 
-impl<E: Evaluator> IterativeSearch<E>
+impl<E: Evaluator, T: Table<<E::G as Game>::M>> Negamaxer<E, T>
 where
     <E::G as Game>::M: Copy,
 {
-    pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
-        let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
-        IterativeSearch {
-            max_depth: 100,
-            max_time: Duration::from_secs(5),
-            timeout: Arc::new(AtomicBool::new(false)),
-            transposition_table: table,
-            move_pool: MovePool::<_>::default(),
-            prev_value: 0,
-            opts,
-            eval,
-            actual_depth: 0,
-            nodes_explored: Vec::new(),
-            next_depth_nodes: 0,
-            total_generate_move_calls: 0,
-            total_generated_moves: 0,
-            table_hits: 0,
-            pv: Vec::new(),
-            wall_time: Duration::default(),
-        }
-    }
-
-    /// Set the maximum depth to search. Disables the timeout.
-    /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: usize) {
-        self.max_depth = depth;
-        self.max_time = Duration::new(0, 0);
-    }
-
-    /// Set the maximum time to compute the best move. When the timeout is
-    /// hit, it returns the best move found of the previous full
-    /// iteration. Unlimited max depth.
-    pub fn set_timeout(&mut self, max_time: Duration) {
-        self.max_time = max_time;
-        self.max_depth = 100;
-    }
-
-    /// Return a human-readable summary of the last move generation.
-    pub fn stats(&self) -> String {
-        let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
-        let mean_branching_factor =
-            self.total_generated_moves as f64 / self.total_generate_move_calls as f64;
-        let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
-            .powf((self.actual_depth as f64 + 1.0).recip());
-        let throughput =
-            (total_nodes_explored + self.next_depth_nodes) as f64 / self.wall_time.as_secs_f64();
-        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} transposition table hits.\n{} nodes/sec",
-		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
-		self.next_depth_nodes, self.table_hits, throughput as usize)
-    }
-
-    #[doc(hidden)]
-    pub fn root_value(&self) -> Evaluation {
-        unclamp_value(self.prev_value)
-    }
-
-    /// Return what the engine considered to be the best sequence of moves
-    /// from both sides.
-    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
-        &self.pv[..]
-    }
-
     // Negamax only among noisy moves.
     fn noisy_negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
-    ) -> Option<Evaluation>
-    where
-        <E::G as Game>::M: Copy,
-    {
+    ) -> Option<Evaluation> {
         if self.timeout.load(Ordering::Relaxed) {
             return None;
         }
@@ -316,18 +239,18 @@ where
     ) -> Option<Evaluation>
     where
         <E::G as Game>::S: Zobrist,
-        <E::G as Game>::M: Copy + Eq,
+        <E::G as Game>::M: Eq,
     {
         if self.timeout.load(Ordering::Relaxed) {
             return None;
         }
 
-        self.next_depth_nodes += 1;
+        self.nodes_explored += 1;
 
         if depth == 0 {
             // Evaluate quiescence search on leaf nodes.
             // Will just return the node's evaluation if quiescence search is disabled.
-            return self.noisy_negamax(s, self.opts.max_quiescence_depth, alpha, beta);
+            return self.noisy_negamax(s, self.max_quiescence_depth, alpha, beta);
         }
         if let Some(winner) = E::G::get_winner(s) {
             return Some(winner.evaluate());
@@ -336,9 +259,7 @@ where
         let alpha_orig = alpha;
         let hash = s.zobrist_hash();
         let mut good_move = None;
-        if let Some(value) =
-            self.transposition_table.check(hash, depth, &mut good_move, &mut alpha, &mut beta)
-        {
+        if let Some(value) = self.table.check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
             return Some(value);
         }
 
@@ -385,16 +306,116 @@ where
                 alpha = value;
                 // Now that we've found a good move, assume following moves
                 // are worse, and seek to cull them without full evaluation.
-                null_window = self.opts.null_window_search;
+                null_window = self.null_window_search;
             }
             if alpha >= beta {
                 break;
             }
         }
 
-        self.transposition_table.update(hash, alpha_orig, beta, depth, best, best_move);
+        self.table.update(hash, alpha_orig, beta, depth, best, best_move);
         self.move_pool.free(moves);
         Some(clamp_value(best))
+    }
+}
+
+pub struct IterativeSearch<E: Evaluator> {
+    max_depth: usize,
+    max_time: Duration,
+    //timeout: Arc<AtomicBool>,
+    negamaxer: Negamaxer<E, TranspositionTable<<E::G as Game>::M>>,
+    //transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
+    //move_pool: MovePool<<E::G as Game>::M>,
+    prev_value: Evaluation,
+    //eval: E,
+    opts: IterativeOptions,
+
+    // Runtime stats for the last move generated.
+
+    // Maximum depth used to produce the move.
+    actual_depth: u8,
+    // Nodes explored at each depth.
+    nodes_explored: Vec<u64>,
+    // Nodes explored past this depth, and thus only useful for filling TT for
+    // next choose_move.
+    //next_depth_nodes: u64,
+    // For computing the average branching factor.
+    //total_generate_move_calls: u64,
+    //total_generated_moves: u64,
+    table_hits: usize,
+    pv: Vec<<E::G as Game>::M>,
+    wall_time: Duration,
+}
+
+impl<E: Evaluator> IterativeSearch<E>
+where
+    <E::G as Game>::M: Copy,
+{
+    pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
+        let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
+        let negamaxer = Negamaxer {
+            timeout: Arc::new(AtomicBool::new(false)),
+            table,
+            move_pool: MovePool::<_>::default(),
+            eval,
+            max_quiescence_depth: opts.max_quiescence_depth,
+            null_window_search: opts.null_window_search,
+            nodes_explored: 0,
+            total_generate_move_calls: 0,
+            total_generated_moves: 0,
+        };
+        IterativeSearch {
+            max_depth: 100,
+            max_time: Duration::from_secs(5),
+            prev_value: 0,
+            negamaxer,
+            opts,
+            actual_depth: 0,
+            nodes_explored: Vec::new(),
+            table_hits: 0,
+            pv: Vec::new(),
+            wall_time: Duration::default(),
+        }
+    }
+
+    /// Set the maximum depth to search. Disables the timeout.
+    /// This can be changed between moves while reusing the transposition table.
+    pub fn set_max_depth(&mut self, depth: usize) {
+        self.max_depth = depth;
+        self.max_time = Duration::new(0, 0);
+    }
+
+    /// Set the maximum time to compute the best move. When the timeout is
+    /// hit, it returns the best move found of the previous full
+    /// iteration. Unlimited max depth.
+    pub fn set_timeout(&mut self, max_time: Duration) {
+        self.max_time = max_time;
+        self.max_depth = 100;
+    }
+
+    /// Return a human-readable summary of the last move generation.
+    pub fn stats(&self) -> String {
+        let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
+        let mean_branching_factor = self.negamaxer.total_generated_moves as f64
+            / self.negamaxer.total_generate_move_calls as f64;
+        let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
+            .powf((self.actual_depth as f64 + 1.0).recip());
+        let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
+            / self.wall_time.as_secs_f64();
+        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} transposition table hits.\n{} nodes/sec",
+		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
+		self.negamaxer.nodes_explored, self.table_hits, throughput as usize)
+    }
+
+    #[doc(hidden)]
+    pub fn root_value(&self) -> Evaluation {
+        unclamp_value(self.prev_value)
+    }
+
+    /// Return what the engine considered to be the best sequence of moves
+    /// from both sides.
+    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
+        &self.pv[..]
     }
 }
 
@@ -404,17 +425,17 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
-        self.transposition_table.advance_generation();
+        self.negamaxer.table.advance_generation();
         // Reset stats.
         self.nodes_explored.clear();
-        self.next_depth_nodes = 0;
-        self.total_generate_move_calls = 0;
-        self.total_generated_moves = 0;
+        self.negamaxer.nodes_explored = 0;
+        self.negamaxer.total_generate_move_calls = 0;
+        self.negamaxer.total_generated_moves = 0;
         self.actual_depth = 0;
         self.table_hits = 0;
         let start_time = Instant::now();
         // Start timer if configured.
-        self.timeout = if self.max_time == Duration::new(0, 0) {
+        self.negamaxer.timeout = if self.max_time == Duration::new(0, 0) {
             Arc::new(AtomicBool::new(false))
         } else {
             timeout_signal(self.max_time)
@@ -426,19 +447,19 @@ where
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
-            if self.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
+            if self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }
-            let entry = self.transposition_table.lookup(root_hash).unwrap();
+            let entry = self.negamaxer.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
 
             self.actual_depth = max(self.actual_depth, depth);
-            self.nodes_explored.push(self.next_depth_nodes);
+            self.nodes_explored.push(self.negamaxer.nodes_explored);
+            self.negamaxer.nodes_explored = 0;
             self.prev_value = entry.value;
-            self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
-            self.transposition_table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
+            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
         }
         self.wall_time = start_time.elapsed();
         best_move
