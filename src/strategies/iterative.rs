@@ -115,6 +115,7 @@ pub struct IterativeOptions {
     table_byte_size: usize,
     strategy: Replacement,
     null_window_search: bool,
+    aspiration_window: Option<Evaluation>,
     step_increment: u8,
     max_quiescence_depth: u8,
 }
@@ -125,6 +126,7 @@ impl IterativeOptions {
             table_byte_size: 1_000_000,
             strategy: Replacement::TwoTier,
             null_window_search: true,
+            aspiration_window: None,
             step_increment: 1,
             max_quiescence_depth: 0,
         }
@@ -156,6 +158,13 @@ impl IterativeOptions {
     /// variation search.
     pub fn with_null_window_search(mut self, null: bool) -> Self {
         self.null_window_search = null;
+        self
+    }
+
+    /// Whether to search first in a narrow window around the previous root
+    /// value on each iteration.
+    pub fn with_aspiration_window(mut self, window: Evaluation) -> Self {
+        self.aspiration_window = Some(window);
         self
     }
 
@@ -193,7 +202,8 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
 
 impl<E: Evaluator, T: Table<<E::G as Game>::M>> Negamaxer<E, T>
 where
-    <E::G as Game>::M: Copy,
+    <E::G as Game>::S: Zobrist,
+    <E::G as Game>::M: Copy + Eq,
 {
     // Negamax only among noisy moves.
     fn noisy_negamax(
@@ -236,11 +246,7 @@ where
     fn negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
         mut beta: Evaluation,
-    ) -> Option<Evaluation>
-    where
-        <E::G as Game>::S: Zobrist,
-        <E::G as Game>::M: Eq,
-    {
+    ) -> Option<Evaluation> {
         if self.timeout.load(Ordering::Relaxed) {
             return None;
         }
@@ -317,17 +323,28 @@ where
         self.move_pool.free(moves);
         Some(clamp_value(best))
     }
+
+    // Try to find the value within a window around the estimated value.
+    // Results, whether exact, overshoot, or undershoot, are stored in the table.
+    fn aspiration_search(
+        &mut self, s: &mut <E::G as Game>::S, depth: u8, target: Evaluation, window: Evaluation,
+    ) -> Option<()> {
+        if depth < 2 {
+            // Do a full search on shallow nodes to establish the target.
+            return Some(());
+        }
+        let alpha = max(target.saturating_sub(window), WORST_EVAL);
+        let beta = target.saturating_add(window);
+        self.negamax(s, depth, alpha, beta)?;
+        Some(())
+    }
 }
 
 pub struct IterativeSearch<E: Evaluator> {
     max_depth: usize,
     max_time: Duration,
-    //timeout: Arc<AtomicBool>,
     negamaxer: Negamaxer<E, TranspositionTable<<E::G as Game>::M>>,
-    //transposition_table: TranspositionTable<<<E as Evaluator>::G as Game>::M>,
-    //move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
-    //eval: E,
     opts: IterativeOptions,
 
     // Runtime stats for the last move generated.
@@ -336,12 +353,6 @@ pub struct IterativeSearch<E: Evaluator> {
     actual_depth: u8,
     // Nodes explored at each depth.
     nodes_explored: Vec<u64>,
-    // Nodes explored past this depth, and thus only useful for filling TT for
-    // next choose_move.
-    //next_depth_nodes: u64,
-    // For computing the average branching factor.
-    //total_generate_move_calls: u64,
-    //total_generated_moves: u64,
     table_hits: usize,
     pv: Vec<<E::G as Game>::M>,
     wall_time: Duration,
@@ -447,6 +458,10 @@ where
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
+            if let Some(window) = self.opts.aspiration_window {
+                // Results of the search are stored in the table.
+                self.negamaxer.aspiration_search(&mut s_clone, depth + 1, self.prev_value, window);
+            }
             if self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;

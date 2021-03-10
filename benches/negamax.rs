@@ -21,7 +21,7 @@ fn bench_iterative(b: &mut Bencher) {
     b.iter(|| {
         let mut s = IterativeSearch::new(
             connect4::BasicEvaluator::default(),
-            IterativeOptions::new().with_table_byte_size(32_000).with_null_window_search(true),
+            IterativeOptions::new().with_table_byte_size(32_000),
         );
         s.set_max_depth(5);
         let m = s.choose_move(&board);
@@ -34,7 +34,7 @@ fn bench_parallel(b: &mut Bencher) {
     b.iter(|| {
         let mut s = ParallelYbw::new(
             connect4::BasicEvaluator::default(),
-            YbwOptions::new().with_table_byte_size(32_000).with_null_window_search(true),
+            YbwOptions::new().with_table_byte_size(32_000),
         );
         s.set_max_depth(5);
         let m = s.choose_move(&board);

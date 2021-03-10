@@ -266,12 +266,15 @@ fn main() {
     );
     dumb.set_max_depth(8);
 
-    let opts = IterativeOptions::new().with_table_byte_size(16_000_000);
+    let opts = IterativeOptions::new()
+        .with_table_byte_size(64_000_000)
+        .with_double_step_increment()
+        .with_aspiration_window(5);
     let mut iterative = IterativeSearch::new(BasicEvaluator::default(), opts);
     iterative.set_max_depth(12);
     let mut parallel = ParallelYbw::new(
         BasicEvaluator::default(),
-        YbwOptions::new().with_table_byte_size(16_000_000),
+        YbwOptions::new().with_table_byte_size(64_000_000).with_double_step_increment(),
     );
     parallel.set_max_depth(12);
     let mut strategies: [&mut dyn Strategy<self::Game>; 3] =

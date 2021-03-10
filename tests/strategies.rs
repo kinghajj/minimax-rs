@@ -143,11 +143,13 @@ fn compare_plain_negamax() {
             for (option_num, opt) in vec![
                 IterativeOptions::new()
                     .with_replacement_strategy(Replacement::DepthPreferred)
-                    .with_null_window_search(true),
+                    .with_null_window_search(false),
                 IterativeOptions::new()
                     .with_replacement_strategy(Replacement::Always)
                     .with_double_step_increment(),
-                IterativeOptions::new().with_replacement_strategy(Replacement::TwoTier),
+                IterativeOptions::new()
+                    .with_replacement_strategy(Replacement::TwoTier)
+                    .with_aspiration_window(5),
             ]
             .drain(..)
             .enumerate()
