@@ -226,3 +226,111 @@ where
         self.concurrent_store(hash, best, depth, flag, best_move);
     }
 }
+
+// A concurrent table that doesn't bother to use atomic operations to access its entries.
+// It's crazily unsafe, but somehow StockFish gets away with this?
+pub(super) struct RacyTable<M> {
+    table: Vec<Entry<M>>,
+    mask: usize,
+    // Incremented for each iterative deepening run.
+    // Values from old generations are always overwritten.
+    generation: AtomicU8,
+}
+
+#[allow(dead_code)]
+impl<M> RacyTable<M> {
+    pub(super) fn new(table_byte_size: usize) -> Self {
+        let size = (table_byte_size / std::mem::size_of::<Entry<M>>()).next_power_of_two();
+        let mask = size - 1;
+        let mut table = Vec::with_capacity(size);
+        for _ in 0..size {
+            table.push(Entry::<M> {
+                hash: 0,
+                value: 0,
+                depth: 0,
+                flag: EntryFlag::Exact,
+                generation: 0,
+                best_move: None,
+            });
+        }
+        Self { table, mask, generation: AtomicU8::new(0) }
+    }
+
+    pub(super) fn concurrent_advance_generation(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl<M: Copy> Table<M> for RacyTable<M> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        self.concurrent_lookup(hash)
+    }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
+
+impl<M: Copy> Table<M> for Arc<RacyTable<M>> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        self.concurrent_lookup(hash)
+    }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
+
+#[allow(dead_code)]
+impl<M> RacyTable<M>
+where
+    M: Copy,
+{
+    pub(super) fn concurrent_lookup(&self, hash: u64) -> Option<Entry<M>> {
+        let index = (hash as usize) & self.mask;
+        let entry = self.table[index];
+        if hash == entry.hash {
+            return Some(entry);
+        }
+        None
+    }
+
+    fn concurrent_store(
+        &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
+    ) {
+        let table_gen = self.generation.load(Ordering::Relaxed);
+        let index = (hash as usize) & self.mask;
+        let entry = &self.table[index];
+        if entry.generation != table_gen || entry.depth <= depth {
+            #[allow(mutable_transmutes)]
+            let ptr = unsafe { std::mem::transmute::<&Entry<M>, &mut Entry<M>>(entry) };
+            *ptr = Entry {
+                hash,
+                value,
+                depth,
+                flag,
+                generation: table_gen,
+                best_move: Some(best_move),
+            };
+        }
+    }
+
+    // Update table based on negamax results.
+    pub(super) fn concurrent_update(
+        &self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8, best: Evaluation,
+        best_move: M,
+    ) {
+        let flag = if best <= alpha_orig {
+            EntryFlag::Upperbound
+        } else if best >= beta {
+            EntryFlag::Lowerbound
+        } else {
+            EntryFlag::Exact
+        };
+        self.concurrent_store(hash, best, depth, flag, best_move);
+    }
+}
