@@ -1,6 +1,8 @@
 # minimax-rs - Generic implementations of Minimax in Rust.
 
-[![Build Status](https://travis-ci.org/kinghajj/minimax-rs.svg?branch=master)](https://travis-ci.org/kinghajj/minimax-rs) [![Crates.io](https://img.shields.io/crates/v/minimax.svg)](https://crates.io/crates/minimax)
+[![Build Status](https://api.travis-ci.com/edre/minimax-rs.svg?branch=master)](https://travis-ci.com/github/edre/minimax-rs)
+[![Crates.io](https://img.shields.io/crates/v/minimax.svg)](https://crates.io/crates/minimax)
+[![Documentation](https://docs.rs/minimax/badge.svg)](https://docs.rs/minimax)
 
 ## About
 
@@ -10,14 +12,16 @@ This library provides interfaces that describe:
 2. methods of evaluating particular game states for a player; and
 3. strategies for choosing moves for a player.
 
-The eventual goal is to have multiple proper strategies, so that any combination
-of evaluators and strategies can be tested against each other. Currently, only
-a basic alpha-beta pruning Negamax strategy is implemented.
+The eventual goal is to have multiple proper strategies, so that any
+combination of evaluators and strategies can be tested against each
+other. Currently, single-threaded algorithms using alpha-beta pruning,
+iterative deeping, and transposition tables are provided.
 
 ## Example
 
-The `ttt` module contains an implementation of Tic-Tac-Toe, demonstrating how to
-use the game and evaluation interfaces. `test` shows how to use strategies.
+The `ttt` and `connect4` modules contain implementations of Tic-Tac-Toe and
+Connect Four, demonstrating how to use the game and evaluation interfaces.
+`test` shows how to use strategies.
 
 ## License
 

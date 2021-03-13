@@ -1,16 +1,27 @@
 [package]
 name = "minimax"
-version = "0.0.2"
-authors = [ "Samuel Fredrickson <samfredrickson@gmail.com>" ]
+version = "0.2.0"
+authors = [ "Samuel Fredrickson <samfredrickson@gmail.com>", "Eric Roshan-Eisner <eric.d.eisner@gmail.com>" ]
 description = "Generic implementations of Minimax."
-documentation = "http://kinghajj.github.io/doc/minimax/"
-repository = "http://github.com/kinghajj/minimax-rs.git"
+documentation = "https://docs.rs/minimax"
+edition = "2018"
+repository = "https://github.com/edre/minimax-rs"
 readme = "README.md"
 keywords = ["ai", "game", "minimax", "negamax"]
 license = "MIT"
 
 [dependencies]
-rand = "0.3.*"
+num_cpus = "1.0"
+parking_lot = "^0.11"
+rand = "0.8"
+rayon = "^1.5"
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "negamax"
+harness = false
 
 [profile.test]
 opt-level = 3
