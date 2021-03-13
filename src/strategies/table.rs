@@ -3,7 +3,7 @@ extern crate parking_lot;
 use crate::interface::*;
 use parking_lot::Mutex;
 use std::cmp::{max, min};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 
 // Common transposition table stuff.
@@ -31,6 +31,7 @@ fn test_entry_size() {
     // TODO: ratchet down
     assert!(std::mem::size_of::<Entry<u32>>() <= 24);
     assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 32);
+    assert_eq!(std::mem::size_of::<ConcurrentEntry<u32>>(), 20);
 }
 
 // A trait for a transposition table. The methods are mutual exclusion, but
@@ -119,9 +120,41 @@ pub(super) trait Table<M: Copy> {
     }
 }
 
-// It would be nice to unify most of the implementation of the single-threaded
-// and concurrent tables, but the methods need different signatures.
-pub(super) struct ConcurrentTable<M> {
+pub(super) trait ConcurrentTable<M> {
+    fn concurrent_store(
+        &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
+    );
+    fn concurrent_advance_generation(&self);
+
+    // Update table based on negamax results.
+    fn concurrent_update(
+        &self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8, best: Evaluation,
+        best_move: M,
+    ) {
+        let flag = if best <= alpha_orig {
+            EntryFlag::Upperbound
+        } else if best >= beta {
+            EntryFlag::Lowerbound
+        } else {
+            EntryFlag::Exact
+        };
+        self.concurrent_store(hash, best, depth, flag, best_move);
+    }
+}
+
+impl<M: Copy, T: Table<M> + ConcurrentTable<M>> Table<M> for Arc<T> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        (**self).lookup(hash)
+    }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
+
+pub(super) struct ShardedTable<M> {
     table: Vec<Mutex<Entry<M>>>,
     mask: usize,
     // Incremented for each iterative deepening run.
@@ -129,7 +162,8 @@ pub(super) struct ConcurrentTable<M> {
     generation: AtomicU8,
 }
 
-impl<M> ConcurrentTable<M> {
+#[allow(dead_code)]
+impl<M> ShardedTable<M> {
     pub(super) fn new(table_byte_size: usize) -> Self {
         let size = (table_byte_size / std::mem::size_of::<Mutex<Entry<M>>>()).next_power_of_two();
         let mask = (size - 1) & !1;
@@ -146,42 +180,10 @@ impl<M> ConcurrentTable<M> {
         }
         Self { table, mask, generation: AtomicU8::new(0) }
     }
-
-    pub(super) fn concurrent_advance_generation(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
-    }
 }
 
-impl<M: Copy> Table<M> for ConcurrentTable<M> {
+impl<M: Copy> Table<M> for ShardedTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
-        self.concurrent_lookup(hash)
-    }
-    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        self.concurrent_store(hash, value, depth, flag, best_move)
-    }
-    fn advance_generation(&mut self) {
-        self.concurrent_advance_generation()
-    }
-}
-
-impl<M: Copy> Table<M> for Arc<ConcurrentTable<M>> {
-    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
-        self.concurrent_lookup(hash)
-    }
-    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        self.concurrent_store(hash, value, depth, flag, best_move)
-    }
-    fn advance_generation(&mut self) {
-        self.concurrent_advance_generation()
-    }
-}
-
-impl<M> ConcurrentTable<M>
-where
-    M: Copy,
-{
-    // Using two-tier table, look in the two adjacent slots
-    pub(super) fn concurrent_lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         for i in index..index + 2 {
             let entry = self.table[i].lock();
@@ -191,7 +193,15 @@ where
         }
         None
     }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
 
+impl<M: Copy> ConcurrentTable<M> for ShardedTable<M> {
     fn concurrent_store(
         &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
     ) {
@@ -211,19 +221,8 @@ where
         *self.table[index + 1].lock() = new_entry;
     }
 
-    // Update table based on negamax results.
-    pub(super) fn concurrent_update(
-        &self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8, best: Evaluation,
-        best_move: M,
-    ) {
-        let flag = if best <= alpha_orig {
-            EntryFlag::Upperbound
-        } else if best >= beta {
-            EntryFlag::Lowerbound
-        } else {
-            EntryFlag::Exact
-        };
-        self.concurrent_store(hash, best, depth, flag, best_move);
+    fn concurrent_advance_generation(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -255,42 +254,10 @@ impl<M> RacyTable<M> {
         }
         Self { table, mask, generation: AtomicU8::new(0) }
     }
-
-    pub(super) fn concurrent_advance_generation(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
-    }
 }
 
 impl<M: Copy> Table<M> for RacyTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
-        self.concurrent_lookup(hash)
-    }
-    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        self.concurrent_store(hash, value, depth, flag, best_move)
-    }
-    fn advance_generation(&mut self) {
-        self.concurrent_advance_generation()
-    }
-}
-
-impl<M: Copy> Table<M> for Arc<RacyTable<M>> {
-    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
-        self.concurrent_lookup(hash)
-    }
-    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        self.concurrent_store(hash, value, depth, flag, best_move)
-    }
-    fn advance_generation(&mut self) {
-        self.concurrent_advance_generation()
-    }
-}
-
-#[allow(dead_code)]
-impl<M> RacyTable<M>
-where
-    M: Copy,
-{
-    pub(super) fn concurrent_lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = self.table[index];
         if hash == entry.hash {
@@ -298,7 +265,15 @@ where
         }
         None
     }
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
 
+impl<M: Copy> ConcurrentTable<M> for RacyTable<M> {
     fn concurrent_store(
         &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
     ) {
@@ -319,18 +294,126 @@ where
         }
     }
 
-    // Update table based on negamax results.
-    pub(super) fn concurrent_update(
-        &self, hash: u64, alpha_orig: Evaluation, beta: Evaluation, depth: u8, best: Evaluation,
-        best_move: M,
+    fn concurrent_advance_generation(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct ConcurrentEntry<M> {
+    high_hash: AtomicU32,
+    value: Evaluation,
+    depth: u8,
+    flag: EntryFlag,
+    generation: u8,
+    best_move: Option<M>,
+}
+
+pub(super) struct LockfreeTable<M> {
+    table: Vec<ConcurrentEntry<M>>,
+    mask: usize,
+    generation: AtomicU8,
+}
+
+// Safe for cross-thread usage because of manual concurrency operations.
+unsafe impl<M> Sync for LockfreeTable<M> {}
+
+impl<M: Copy> Table<M> for LockfreeTable<M> {
+    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
+        let index = (hash as usize) & self.mask;
+        let entry = &self.table[index];
+        if (hash >> 32) as u32 == entry.high_hash.load(Ordering::SeqCst) {
+            // Copy contents
+            let ret = Some(Entry {
+                // No one reads the hash.
+                hash: 0,
+                value: entry.value,
+                depth: entry.depth,
+                flag: entry.flag,
+                generation: entry.generation,
+                best_move: entry.best_move,
+            });
+            // Verify the hash hasn't changed during the copy.
+            if (hash >> 32) as u32 == entry.high_hash.load(Ordering::SeqCst) {
+                return ret;
+            }
+        }
+        None
+    }
+
+    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
+        self.concurrent_store(hash, value, depth, flag, best_move)
+    }
+    fn advance_generation(&mut self) {
+        self.concurrent_advance_generation()
+    }
+}
+
+#[allow(dead_code)]
+impl<M> LockfreeTable<M> {
+    const WRITING_SENTINEL: u32 = 0xffff_ffff;
+
+    pub(super) fn new(table_byte_size: usize) -> Self {
+        let size =
+            (table_byte_size / std::mem::size_of::<ConcurrentEntry<M>>()).next_power_of_two();
+        let mask = size - 1;
+        let mut table = Vec::with_capacity(size);
+        for _ in 0..size {
+            table.push(ConcurrentEntry::<M> {
+                high_hash: AtomicU32::new(0x5555_5555),
+                value: 0,
+                depth: 0,
+                flag: EntryFlag::Exact,
+                generation: 0,
+                best_move: None,
+            });
+        }
+        Self { table, mask, generation: AtomicU8::new(0) }
+    }
+}
+
+impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
+    fn concurrent_store(
+        &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
     ) {
-        let flag = if best <= alpha_orig {
-            EntryFlag::Upperbound
-        } else if best >= beta {
-            EntryFlag::Lowerbound
-        } else {
-            EntryFlag::Exact
-        };
-        self.concurrent_store(hash, best, depth, flag, best_move);
+        let table_gen = self.generation.load(Ordering::Relaxed);
+        let index = (hash as usize) & self.mask;
+        let entry = &self.table[index];
+        if entry.generation != table_gen || entry.depth <= depth {
+            // Set hash to sentinel value during write.
+            let x = entry.high_hash.load(Ordering::SeqCst);
+            if x == Self::WRITING_SENTINEL {
+                // Someone's already writing, just forget it.
+                return;
+            }
+            // Try to set to sentinel value:
+            if entry.high_hash.compare_exchange_weak(
+                x,
+                Self::WRITING_SENTINEL,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ).is_err() {
+                // Someone just started writing, just forget it.
+                return;
+            }
+
+            // concurrent_lookup will throw out any read that occurs across a write.
+            // Unless it's a write of the same hash, but close enough.
+            #[allow(mutable_transmutes)]
+            let entry = unsafe {
+                std::mem::transmute::<&ConcurrentEntry<M>, &mut ConcurrentEntry<M>>(entry)
+            };
+            entry.value = value;
+            entry.depth = depth;
+            entry.flag = flag;
+            entry.generation = table_gen;
+            entry.best_move = Some(best_move);
+
+            // Set hash to correct value to indicate done.
+            entry.high_hash.store((hash >> 32) as u32, Ordering::SeqCst);
+        }
+    }
+
+    fn concurrent_advance_generation(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
     }
 }

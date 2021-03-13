@@ -106,7 +106,7 @@ where
     <E::G as Game>::S: Clone,
     <E::G as Game>::M: Copy + Eq,
 {
-    negamaxer: Negamaxer<E, Arc<ConcurrentTable<<E::G as Game>::M>>>,
+    negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
     command: Arc<Mutex<Command<<E::G as Game>::S>>>,
     waiter: Arc<Condvar>,
 }
@@ -172,8 +172,8 @@ where
 {
     max_depth: usize,
     max_time: Duration,
-    table: Arc<ConcurrentTable<<E::G as Game>::M>>,
-    negamaxer: Negamaxer<E, Arc<ConcurrentTable<<E::G as Game>::M>>>,
+    table: Arc<LockfreeTable<<E::G as Game>::M>>,
+    negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
     command: Arc<Mutex<Command<<E::G as Game>::S>>>,
     signal: Arc<Condvar>,
 
@@ -210,7 +210,7 @@ where
     where
         E: 'static,
     {
-        let table = Arc::new(ConcurrentTable::new(opts.table_byte_size));
+        let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
         let command = Arc::new(Mutex::new(Command::Wait));
         let signal = Arc::new(Condvar::new());
         // start n-1 helper threads

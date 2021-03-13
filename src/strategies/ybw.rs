@@ -80,7 +80,7 @@ pub struct ParallelYbw<E: Evaluator> {
     max_depth: usize,
     max_time: Duration,
     timeout: Arc<AtomicBool>,
-    table: ConcurrentTable<<<E as Evaluator>::G as Game>::M>,
+    table: LockfreeTable<<<E as Evaluator>::G as Game>::M>,
     //move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
     eval: E,
@@ -106,7 +106,7 @@ pub struct ParallelYbw<E: Evaluator> {
 
 impl<E: Evaluator> ParallelYbw<E> {
     pub fn new(eval: E, opts: YbwOptions) -> ParallelYbw<E> {
-        let table = ConcurrentTable::new(opts.table_byte_size);
+        let table = LockfreeTable::new(opts.table_byte_size);
         ParallelYbw {
             max_depth: 100,
             max_time: Duration::from_secs(5),
