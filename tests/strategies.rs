@@ -10,7 +10,7 @@ extern crate rand;
 mod connect4;
 
 use minimax::*;
-use rand::Rng;
+use rand::seq::SliceRandom;
 use std::cmp::max;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -80,6 +80,7 @@ where
     }
 }
 
+#[derive(Clone)]
 struct RandomEvaluator;
 
 impl Default for RandomEvaluator {
@@ -107,7 +108,7 @@ fn generate_random_state(depth: usize) -> connect4::Board {
     for _ in 0..depth {
         let mut moves = Vec::new();
         connect4::Game::generate_moves(&b, &mut moves);
-        let m = moves[rng.gen_range(0, moves.len())];
+        let m = moves.choose(&mut rng).unwrap();
         m.apply(&mut b);
         if connect4::Game::get_winner(&b).is_some() {
             // Oops, undo and try again on the next iter.
@@ -175,18 +176,34 @@ fn compare_plain_negamax() {
                 );
             }
 
-            let mut parallel = ParallelYbw::new(
+            let mut ybw = ParallelYbw::new(
                 RandomEvaluator::default(),
                 YbwOptions::default().with_table_byte_size(64000),
             );
-            parallel.set_max_depth(max_depth);
-            let parallel_move = parallel.choose_move(&b).unwrap();
-            let parallel_value = parallel.root_value();
-            assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
+            ybw.set_max_depth(max_depth);
+            let ybw_move = ybw.choose_move(&b).unwrap();
+            let ybw_value = ybw.root_value();
+            assert_eq!(value, ybw_value, "search depth={}\n{}", max_depth, b);
             assert!(
-                plain_negamax.best_moves.contains(&parallel_move),
+                plain_negamax.best_moves.contains(&ybw_move),
                 "bad move={:?}\nsearch depth={}\n{}",
-                parallel_move,
+                ybw_move,
+                max_depth,
+                b
+            );
+
+            let mut lazysmp = LazySmp::new(
+                RandomEvaluator::default(),
+                LazySmpOptions::default().with_table_byte_size(64000),
+            );
+            lazysmp.set_max_depth(max_depth);
+            let lazysmp_move = lazysmp.choose_move(&b).unwrap();
+            let lazysmp_value = lazysmp.root_value();
+            assert_eq!(value, lazysmp_value, "search depth={}\n{}", max_depth, b);
+            assert!(
+                plain_negamax.best_moves.contains(&lazysmp_move),
+                "bad move={:?}\nsearch depth={}\n{}",
+                lazysmp_move,
                 max_depth,
                 b
             );
@@ -223,6 +240,15 @@ fn compare_deep_negamax() {
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();
             assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
+
+            let mut lazysmp = LazySmp::new(
+                RandomEvaluator::default(),
+                LazySmpOptions::default().with_table_byte_size(64000),
+            );
+            lazysmp.set_max_depth(max_depth);
+            lazysmp.choose_move(&b).unwrap();
+            let lazysmp_value = lazysmp.root_value();
+            assert_eq!(value, lazysmp_value, "search depth={}\n{}", max_depth, b);
         }
     }
 }

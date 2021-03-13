@@ -195,6 +195,7 @@ impl Board {
     }
 }
 
+#[derive(Clone)]
 pub struct BasicEvaluator;
 
 impl Default for BasicEvaluator {
@@ -250,8 +251,7 @@ impl minimax::Evaluator for BasicEvaluator {
 }
 
 fn main() {
-    use minimax::{perft, Game, Move, Strategy};
-    use minimax::{IterativeOptions, IterativeSearch, ParallelYbw, YbwOptions};
+    use minimax::*;
 
     let mut b = Board::default();
 
@@ -272,16 +272,24 @@ fn main() {
         .with_aspiration_window(5);
     let mut iterative = IterativeSearch::new(BasicEvaluator::default(), opts);
     iterative.set_max_depth(12);
-    let mut parallel = ParallelYbw::new(
+    let mut parallelybw = ParallelYbw::new(
         BasicEvaluator::default(),
         YbwOptions::new().with_table_byte_size(64_000_000).with_double_step_increment(),
     );
-    parallel.set_max_depth(12);
-    let mut strategies: [&mut dyn Strategy<self::Game>; 3] =
-        [&mut dumb, &mut iterative, &mut parallel];
+    parallelybw.set_max_depth(12);
+    let mut lazysmp = LazySmp::new(
+        BasicEvaluator::default(),
+        LazySmpOptions::new().with_table_byte_size(64_000_000).with_double_step_increment(),
+    );
+    lazysmp.set_max_depth(12);
+
+    let mut strategies: [&mut dyn Strategy<self::Game>; 4] =
+        [&mut dumb, &mut iterative, &mut parallelybw, &mut lazysmp];
 
     if std::env::args().any(|arg| arg == "parallel") {
         strategies.swap(1, 2);
+    } else if std::env::args().any(|arg| arg == "lazysmp") {
+        strategies.swap(1, 3);
     }
 
     let mut s = 0;

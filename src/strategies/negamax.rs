@@ -6,13 +6,13 @@
 use super::super::interface::*;
 use super::super::util::*;
 use super::util::*;
-use rand::Rng;
+use rand::seq::SliceRandom;
 use std::cmp::max;
 
 pub struct Negamax<E: Evaluator> {
     max_depth: usize,
     move_pool: MovePool<<E::G as Game>::M>,
-    rng: rand::ThreadRng,
+    rng: rand::rngs::ThreadRng,
     prev_value: Evaluation,
     eval: E,
 }
@@ -74,7 +74,7 @@ where
         E::G::generate_moves(s, &mut moves);
         // Randomly permute order that we look at the moves.
         // We'll pick the first best score from this list.
-        self.rng.shuffle(&mut moves[..]);
+        moves.shuffle(&mut self.rng);
 
         let mut best_move = *moves.first()?;
         let mut s_clone = s.clone();

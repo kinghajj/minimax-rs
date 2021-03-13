@@ -1,10 +1,10 @@
 //! A strategy that randomly chooses a move, for use in tests.
 
 use super::super::interface::*;
-use rand::Rng;
+use rand::seq::SliceRandom;
 
 pub struct Random {
-    rng: rand::ThreadRng,
+    rng: rand::rngs::ThreadRng,
 }
 
 impl Random {
@@ -26,10 +26,6 @@ where
     fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
         let mut moves = Vec::new();
         G::generate_moves(s, &mut moves);
-        if moves.is_empty() {
-            None
-        } else {
-            Some(moves[self.rng.gen_range(0, moves.len())])
-        }
+        moves.choose(&mut self.rng).copied()
     }
 }

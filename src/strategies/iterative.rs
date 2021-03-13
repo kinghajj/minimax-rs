@@ -186,7 +186,7 @@ impl IterativeOptions {
 
 pub(super) struct Negamaxer<E: Evaluator, T> {
     timeout: Arc<AtomicBool>,
-    table: T,
+    pub(super) table: T,
     move_pool: MovePool<<E::G as Game>::M>,
     eval: E,
 
@@ -205,6 +205,32 @@ where
     <E::G as Game>::S: Zobrist,
     <E::G as Game>::M: Copy + Eq,
 {
+    pub(super) fn new(
+        table: T, eval: E, max_quiescence_depth: u8, null_window_search: bool,
+    ) -> Self {
+        Self {
+            timeout: Arc::new(AtomicBool::new(false)),
+            table,
+            eval,
+            move_pool: MovePool::default(),
+            max_quiescence_depth,
+            null_window_search,
+            nodes_explored: 0,
+            total_generate_move_calls: 0,
+            total_generated_moves: 0,
+        }
+    }
+
+    pub(super) fn set_timeout(&mut self, timeout: Arc<AtomicBool>) {
+        self.timeout = timeout;
+    }
+
+    fn reset_stats(&mut self) {
+        self.nodes_explored = 0;
+        self.total_generate_move_calls = 0;
+        self.total_generated_moves = 0;
+    }
+
     // Negamax only among noisy moves.
     fn noisy_negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
@@ -243,7 +269,7 @@ where
     }
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
-    fn negamax(
+    pub(super) fn negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
         mut beta: Evaluation,
     ) -> Option<Evaluation> {
@@ -326,7 +352,7 @@ where
 
     // Try to find the value within a window around the estimated value.
     // Results, whether exact, overshoot, or undershoot, are stored in the table.
-    fn aspiration_search(
+    pub(super) fn aspiration_search(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, target: Evaluation, window: Evaluation,
     ) -> Option<()> {
         if depth < 2 {
@@ -360,21 +386,13 @@ pub struct IterativeSearch<E: Evaluator> {
 
 impl<E: Evaluator> IterativeSearch<E>
 where
-    <E::G as Game>::M: Copy,
+    <E::G as Game>::M: Copy + Eq,
+    <E::G as Game>::S: Clone + Zobrist,
 {
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
-        let negamaxer = Negamaxer {
-            timeout: Arc::new(AtomicBool::new(false)),
-            table,
-            move_pool: MovePool::<_>::default(),
-            eval,
-            max_quiescence_depth: opts.max_quiescence_depth,
-            null_window_search: opts.null_window_search,
-            nodes_explored: 0,
-            total_generate_move_calls: 0,
-            total_generated_moves: 0,
-        };
+        let negamaxer =
+            Negamaxer::new(table, eval, opts.max_quiescence_depth, opts.null_window_search);
         IterativeSearch {
             max_depth: 100,
             max_time: Duration::from_secs(5),
@@ -439,18 +457,16 @@ where
         self.negamaxer.table.advance_generation();
         // Reset stats.
         self.nodes_explored.clear();
-        self.negamaxer.nodes_explored = 0;
-        self.negamaxer.total_generate_move_calls = 0;
-        self.negamaxer.total_generated_moves = 0;
+        self.negamaxer.reset_stats();
         self.actual_depth = 0;
         self.table_hits = 0;
         let start_time = Instant::now();
         // Start timer if configured.
-        self.negamaxer.timeout = if self.max_time == Duration::new(0, 0) {
+        self.negamaxer.set_timeout(if self.max_time == Duration::new(0, 0) {
             Arc::new(AtomicBool::new(false))
         } else {
             timeout_signal(self.max_time)
-        };
+        });
 
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
