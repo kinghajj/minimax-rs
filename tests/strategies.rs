@@ -98,7 +98,7 @@ impl minimax::Evaluator for RandomEvaluator {
         hasher.write_u64(b.pieces_to_move);
         let hash = hasher.finish();
         // Use fewer bits so that we get some equal values.
-        (hash as minimax::Evaluation) >> 25
+        (hash as minimax::Evaluation) >> 9
     }
 }
 

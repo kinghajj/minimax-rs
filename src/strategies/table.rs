@@ -3,6 +3,7 @@ extern crate parking_lot;
 use crate::interface::*;
 use parking_lot::Mutex;
 use std::cmp::{max, min};
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
@@ -15,22 +16,47 @@ pub(super) enum EntryFlag {
     Lowerbound,
 }
 
-// TODO: Optimize size. Ideally 16 bytes or less.
 #[derive(Copy, Clone)]
-pub(super) struct Entry<M> {
-    pub(super) hash: u64,
+pub(super) struct Entry<M: Copy> {
+    // High bits of hash. Low bits are used in table index.
+    pub(super) hash: u32,
     pub(super) value: Evaluation,
     pub(super) depth: u8,
     pub(super) flag: EntryFlag,
     pub(super) generation: u8,
-    pub(super) best_move: Option<M>,
+    // Always initialized when entry is populated.
+    pub(super) best_move: MaybeUninit<M>,
 }
 
 #[test]
 fn test_entry_size() {
-    // TODO: ratchet down
-    assert!(std::mem::size_of::<Entry<u32>>() <= 24);
-    assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 32);
+    // Even with the mutex, we want this to be within 16 bytes so 4 can fit on a cache line.
+    // 3 byte move allows enum Moves with 2 bytes of payload.
+    assert!(std::mem::size_of::<Entry<[u8; 3]>>() <= 16);
+    assert!(std::mem::size_of::<Mutex<Entry<[u8; 3]>>>() <= 16);
+}
+
+impl<M: Copy> Entry<M> {
+    pub(super) fn empty() -> Self {
+        Entry {
+            hash: 0,
+            value: 0,
+            depth: 0,
+            flag: EntryFlag::Exact,
+            generation: 0,
+            best_move: MaybeUninit::uninit(),
+        }
+    }
+
+    pub(super) fn best_move(&self) -> M {
+        debug_assert!(self.hash != 0);
+        unsafe { self.best_move.assume_init() }
+    }
+}
+
+pub(super) fn high_hash_bits(hash: u64) -> u32 {
+    // Always set the bottom bit to ensure no one matches the zero hash.
+    (hash >> 32) as u32 | 1
 }
 
 // A trait for a transposition table. The methods are mutual exclusion, but
@@ -48,7 +74,7 @@ pub(super) trait Table<M: Copy> {
         beta: &mut Evaluation,
     ) -> Option<Evaluation> {
         if let Some(entry) = self.lookup(hash) {
-            *good_move = entry.best_move;
+            *good_move = Some(entry.best_move());
             if entry.depth >= depth {
                 match entry.flag {
                     EntryFlag::Exact => {
@@ -102,7 +128,7 @@ pub(super) trait Table<M: Copy> {
             // value to be exact, and we can't guarantee that the table entry
             // will remain in the table between the searches that find
             // equivalent upper and lower bounds.
-            let m = entry.best_move.unwrap();
+            let m = entry.best_move();
             pv.push(m);
             m.apply(s);
             hash = s.zobrist_hash();
@@ -121,7 +147,7 @@ pub(super) trait Table<M: Copy> {
 
 // It would be nice to unify most of the implementation of the single-threaded
 // and concurrent tables, but the methods need different signatures.
-pub(super) struct ConcurrentTable<M> {
+pub(super) struct ConcurrentTable<M: Copy> {
     table: Vec<Mutex<Entry<M>>>,
     mask: usize,
     // Incremented for each iterative deepening run.
@@ -129,20 +155,13 @@ pub(super) struct ConcurrentTable<M> {
     generation: AtomicU8,
 }
 
-impl<M> ConcurrentTable<M> {
+impl<M: Copy> ConcurrentTable<M> {
     pub(super) fn new(table_byte_size: usize) -> Self {
         let size = (table_byte_size / std::mem::size_of::<Mutex<Entry<M>>>()).next_power_of_two();
         let mask = (size - 1) & !1;
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
-            table.push(Mutex::new(Entry::<M> {
-                hash: 0,
-                value: 0,
-                depth: 0,
-                flag: EntryFlag::Exact,
-                generation: 0,
-                best_move: None,
-            }));
+            table.push(Mutex::new(Entry::empty()));
         }
         Self { table, mask, generation: AtomicU8::new(0) }
     }
@@ -185,7 +204,7 @@ where
         let index = (hash as usize) & self.mask;
         for i in index..index + 2 {
             let entry = self.table[i].lock();
-            if hash == entry.hash {
+            if high_hash_bits(hash) == entry.hash {
                 return Some(*entry);
             }
         }
@@ -198,8 +217,14 @@ where
         let table_gen = self.generation.load(Ordering::Relaxed);
         // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
         let index = (hash as usize) & self.mask;
-        let new_entry =
-            Entry { hash, value, depth, flag, generation: table_gen, best_move: Some(best_move) };
+        let new_entry = Entry {
+            hash: high_hash_bits(hash),
+            value,
+            depth,
+            flag,
+            generation: table_gen,
+            best_move: MaybeUninit::new(best_move),
+        };
         {
             let mut entry = self.table[index].lock();
             if entry.generation != table_gen || entry.depth <= depth {
@@ -229,7 +254,7 @@ where
 
 // A concurrent table that doesn't bother to use atomic operations to access its entries.
 // It's crazily unsafe, but somehow StockFish gets away with this?
-pub(super) struct RacyTable<M> {
+pub(super) struct RacyTable<M: Copy> {
     table: Vec<Entry<M>>,
     mask: usize,
     // Incremented for each iterative deepening run.
@@ -238,20 +263,13 @@ pub(super) struct RacyTable<M> {
 }
 
 #[allow(dead_code)]
-impl<M> RacyTable<M> {
+impl<M: Copy> RacyTable<M> {
     pub(super) fn new(table_byte_size: usize) -> Self {
         let size = (table_byte_size / std::mem::size_of::<Entry<M>>()).next_power_of_two();
         let mask = size - 1;
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
-            table.push(Entry::<M> {
-                hash: 0,
-                value: 0,
-                depth: 0,
-                flag: EntryFlag::Exact,
-                generation: 0,
-                best_move: None,
-            });
+            table.push(Entry::empty());
         }
         Self { table, mask, generation: AtomicU8::new(0) }
     }
@@ -293,7 +311,7 @@ where
     pub(super) fn concurrent_lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = self.table[index];
-        if hash == entry.hash {
+        if high_hash_bits(hash) == entry.hash {
             return Some(entry);
         }
         None
@@ -309,12 +327,12 @@ where
             #[allow(mutable_transmutes)]
             let ptr = unsafe { std::mem::transmute::<&Entry<M>, &mut Entry<M>>(entry) };
             *ptr = Entry {
-                hash,
+                hash: high_hash_bits(hash),
                 value,
                 depth,
                 flag,
                 generation: table_gen,
-                best_move: Some(best_move),
+                best_move: MaybeUninit::new(best_move),
             };
         }
     }

@@ -3,14 +3,14 @@
 /// An assessment of a game state from the perspective of the player whose turn it is to play.
 /// Higher values mean a more favorable state.
 /// A draw is defined as a score of zero.
-pub type Evaluation = i32;
+pub type Evaluation = i16;
 
 // These definitions ensure that they negate to each other, but it leaves
 // i32::MIN as a valid value less than WORST_EVAL. Don't use this value, and
 // any Strategy will panic when it tries to negate it.
 
 /// An absolutely wonderful outcome, e.g. a win.
-pub const BEST_EVAL: Evaluation = i32::MAX;
+pub const BEST_EVAL: Evaluation = i16::MAX;
 /// An absolutely disastrous outcome, e.g. a loss.
 pub const WORST_EVAL: Evaluation = -BEST_EVAL;
 

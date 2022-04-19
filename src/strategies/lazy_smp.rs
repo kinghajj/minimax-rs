@@ -338,7 +338,7 @@ where
             }
 
             let entry = self.table.lookup(root_hash).unwrap();
-            best_move = entry.best_move;
+            best_move = Some(entry.best_move());
 
             self.actual_depth = max(self.actual_depth, depth);
             self.prev_value = entry.value;
