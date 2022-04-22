@@ -1,7 +1,11 @@
 //! Utility functions for testing, and tests.
 
+extern crate rayon;
+
 use super::interface;
 use super::interface::{Game, Move};
+
+use rayon::prelude::*;
 use std::default::Default;
 use std::time::Instant;
 
@@ -55,7 +59,13 @@ impl<M> MovePool<M> {
     }
 }
 
-fn perft_recurse<G: Game>(pool: &mut MovePool<G::M>, state: &mut G::S, depth: usize) -> u64 {
+fn perft_recurse<G: Game>(
+    pool: &mut MovePool<G::M>, state: &mut G::S, depth: usize, single_thread_cutoff: usize,
+) -> u64
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
     if depth == 0 {
         return 1;
     }
@@ -67,26 +77,46 @@ fn perft_recurse<G: Game>(pool: &mut MovePool<G::M>, state: &mut G::S, depth: us
     G::generate_moves(state, &mut moves);
     let n = if depth == 1 {
         moves.len() as u64
-    } else {
+    } else if depth <= single_thread_cutoff {
+        // Single-thread recurse.
         let mut count = 0;
         for m in moves.iter() {
             m.apply(state);
-            count += perft_recurse::<G>(pool, state, depth - 1);
+            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
             m.undo(state);
         }
         count
+    } else {
+        // Multi-thread recurse.
+        moves
+            .par_iter()
+            .with_max_len(1)
+            .map(|&m| {
+                let mut state2 = state.clone();
+                let mut pool2 = MovePool::<G::M>::default();
+                m.apply(&mut state2);
+                perft_recurse::<G>(&mut pool2, &mut state2, depth - 1, single_thread_cutoff)
+            })
+            .sum()
     };
     pool.free(moves);
     n
 }
 
-pub fn perft<G: Game>(state: &mut <G as Game>::S, max_depth: usize) -> Vec<u64> {
+pub fn perft<G: Game>(
+    state: &mut <G as Game>::S, max_depth: usize, multi_threaded: bool,
+) -> Vec<u64>
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
     println!("depth           count        time        kn/s");
     let mut pool = MovePool::<G::M>::default();
     let mut counts = Vec::new();
+    let single_thread_cutoff = if multi_threaded { 3 } else { max_depth };
     for depth in 0..max_depth + 1 {
         let start = Instant::now();
-        let count = perft_recurse::<G>(&mut pool, state, depth);
+        let count = perft_recurse::<G>(&mut pool, state, depth, single_thread_cutoff);
         let dur = start.elapsed();
         let rate = count as f64 / dur.as_secs_f64() / 1000.0;
         println!("{:>5} {:>15} {:>11} {:>11.1}", depth, count, format!("{:.1?}", dur), rate);

@@ -256,7 +256,7 @@ fn main() {
     let mut b = Board::default();
 
     if std::env::args().any(|arg| arg == "perft") {
-        perft::<self::Game>(&mut b, 10);
+        perft::<self::Game>(&mut b, 10, false);
         return;
     }
 
