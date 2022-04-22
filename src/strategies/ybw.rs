@@ -13,7 +13,7 @@ use super::util::*;
 
 use rayon::prelude::*;
 use std::cmp::max;
-use std::sync::atomic::{AtomicBool, AtomicI16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -76,10 +76,7 @@ impl YbwOptions {
     }
 }
 
-pub struct ParallelYbw<E: Evaluator>
-where
-    <<E as Evaluator>::G as Game>::M: Copy,
-{
+pub struct ParallelYbw<E: Evaluator> {
     max_depth: usize,
     max_time: Duration,
     timeout: Arc<AtomicBool>,
@@ -107,10 +104,7 @@ where
     wall_time: Duration,
 }
 
-impl<E: Evaluator> ParallelYbw<E>
-where
-    <E::G as Game>::M: Copy,
-{
+impl<E: Evaluator> ParallelYbw<E> {
     pub fn new(eval: E, opts: YbwOptions) -> ParallelYbw<E> {
         let table = ConcurrentTable::new(opts.table_byte_size);
         ParallelYbw {
@@ -302,7 +296,7 @@ where
             }
             (best, best_move)
         } else {
-            let alpha = AtomicI16::new(alpha);
+            let alpha = AtomicI32::new(alpha);
             let best_move = Mutex::new(ValueMove::new(initial_value, first_move));
             // Parallel search
             let result = moves.par_iter().with_max_len(1).try_for_each(|&m| -> Option<()> {
@@ -386,7 +380,7 @@ where
                 break;
             }
             let entry = self.table.lookup(root_hash).unwrap();
-            best_move = Some(entry.best_move());
+            best_move = entry.best_move;
 
             self.actual_depth = max(self.actual_depth, depth);
             self.nodes_explored.push(self.next_depth_nodes);

@@ -10,7 +10,6 @@ use super::table::*;
 use super::util::*;
 
 use std::cmp::max;
-use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,7 +23,7 @@ pub enum Replacement {
     // TODO: Bucket(size)
 }
 
-struct TranspositionTable<M: Copy> {
+struct TranspositionTable<M> {
     table: Vec<Entry<M>>,
     mask: usize,
     // Incremented for each iterative deepening run.
@@ -39,7 +38,14 @@ impl<M: Copy> TranspositionTable<M> {
         let mask = if strategy == Replacement::TwoTier { (size - 1) & !1 } else { size - 1 };
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
-            table.push(Entry::empty());
+            table.push(Entry::<M> {
+                hash: 0,
+                value: 0,
+                depth: 0,
+                flag: EntryFlag::Exact,
+                generation: 0,
+                best_move: None,
+            });
         }
         Self { table, mask, generation: 0, strategy }
     }
@@ -49,11 +55,11 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
-        if high_hash_bits(hash) == entry.hash {
+        if hash == entry.hash {
             Some(*entry)
         } else if self.strategy == Replacement::TwoTier {
             let entry = &self.table[index + 1];
-            if high_hash_bits(hash) == entry.hash {
+            if hash == entry.hash {
                 Some(*entry)
             } else {
                 None
@@ -88,12 +94,12 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
         };
         if let Some(index) = dest {
             self.table[index] = Entry {
-                hash: high_hash_bits(hash),
+                hash,
                 value,
                 depth,
                 flag,
                 generation: self.generation,
-                best_move: MaybeUninit::new(best_move),
+                best_move: Some(best_move),
             }
         }
     }
@@ -360,10 +366,7 @@ where
     }
 }
 
-pub struct IterativeSearch<E: Evaluator>
-where
-    <<E as Evaluator>::G as Game>::M: Copy,
-{
+pub struct IterativeSearch<E: Evaluator> {
     max_depth: usize,
     max_time: Duration,
     negamaxer: Negamaxer<E, TranspositionTable<<E::G as Game>::M>>,
@@ -480,7 +483,7 @@ where
                 break;
             }
             let entry = self.negamaxer.table.lookup(root_hash).unwrap();
-            best_move = Some(entry.best_move());
+            best_move = entry.best_move;
 
             self.actual_depth = max(self.actual_depth, depth);
             self.nodes_explored.push(self.negamaxer.nodes_explored);
