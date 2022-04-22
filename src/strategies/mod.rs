@@ -2,6 +2,7 @@
 
 pub mod iterative;
 pub mod lazy_smp;
+pub mod mcts;
 pub mod negamax;
 pub mod random;
 pub mod ybw;

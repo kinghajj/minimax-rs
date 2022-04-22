@@ -1,4 +1,4 @@
-// For a given Evaluator and depth, all Strategies should produce the same
+// For a given Evaluator and depth, all negamax Strategies should produce the same
 // value for the root. They use different techniques and pruning heuristics
 // for speed, but it's all fundamentally the minimax algorithm. This file
 // creates fake evaluation trees of connect four, and ensures that all
