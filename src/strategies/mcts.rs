@@ -3,7 +3,9 @@ use super::util::AtomicBox;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::thread::spawn;
 
 struct Node<M> {
     // The Move to get from the parent to here.
@@ -47,7 +49,10 @@ impl<M> Node<M> {
 
     // Choose best child based on UCT.
     fn best_child(&self, exploration_score: f32) -> Option<&Node<M>> {
-        let log_visits = (self.visits.load(Ordering::SeqCst) as f32).log2();
+	let mut log_visits = (self.visits.load(Ordering::SeqCst) as f32).log2();
+	// Keep this numerator non-negative.
+	if log_visits < 0.0 { log_visits = 0.0; }
+
         let expansion = self.expansion.get()?;
         // Find a node, randomly chosen among the best scores.
         // TODO: make it more uniformly random?
@@ -86,17 +91,22 @@ impl<M> Node<M> {
 }
 
 /// Options for MonteCarloTreeSearch.
+#[derive(Clone)]
 pub struct MCTSOptions {
     max_rollout_depth: u32,
     rollouts_before_expanding: u32,
     // None means use num_cpus.
-    // TODO: num_threads: Option<u32>,
+    num_threads: Option<usize>,
     // TODO: rollout_policy
 }
 
 impl Default for MCTSOptions {
     fn default() -> Self {
-        Self { max_rollout_depth: 100, rollouts_before_expanding: 0 }
+        Self {
+	    max_rollout_depth: 100,
+	    rollouts_before_expanding: 0,
+	    num_threads: None,
+	}
     }
 }
 
@@ -115,8 +125,17 @@ impl MCTSOptions {
         self.rollouts_before_expanding = rollouts;
         self
     }
+
+    /// How many threads to run. Defaults to num_cpus.
+    pub fn with_num_threads(mut self, threads: u32) -> Self {
+	self.num_threads = Some(threads as usize);
+	self
+    }
 }
 
+/// A strategy that uses random playouts to explore the game tree to decide on the best move.
+/// This can be used without an Evaluator, just using the rules of the game.
+#[derive(Clone)]
 pub struct MonteCarloTreeSearch {
     // TODO: Evaluator
     options: MCTSOptions,
@@ -200,31 +219,47 @@ impl MonteCarloTreeSearch {
         m.apply(state);
         let result = -self.simulate::<G>(next, state, force_rollout);
         m.undo(state);
+
+	// Backpropagate.
         node.update_stats(result)
     }
 }
 
 impl<G: Game> Strategy<G> for MonteCarloTreeSearch
 where
-    G::S: Clone,
-    G::M: Copy,
+    G::S: Clone + Send + 'static,
+    G::M: Copy + Send + Sync + 'static,
 {
     fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
-        let root = Node::<G::M>::new(None);
+        let root = Arc::new(Node::<G::M>::new(None));
         root.expansion.try_set(new_expansion::<G>(s));
-        let mut state = s.clone();
-        for _ in 0..self.max_rollouts {
-            self.simulate::<G>(&root, &mut state, false);
-        }
-        debug_assert_eq!(self.max_rollouts, root.visits.load(Ordering::SeqCst));
+
+	let num_threads = self.options.num_threads.unwrap_or_else(num_cpus::get) as u32;
+	let num_rollouts = self.max_rollouts / num_threads;
+
+	let threads = (1..num_threads).map(|_| {
+	    let node = root.clone();
+	    let mut state = s.clone();
+	    let mcts = self.clone();
+	    spawn(move || {
+		for _ in 0..num_rollouts {
+		    mcts.simulate::<G>(&node, &mut state, false);
+		}
+	    })
+	}).collect::<Vec<_>>();
+
+	let mut state = s.clone();
+	let extra = self.max_rollouts - num_rollouts * num_threads;
+	for _ in 0..num_rollouts + extra {
+	    self.simulate::<G>(&root, &mut state, false);
+	}
+
+	// Wait for threads.
+	for thread in threads {
+	    thread.join().unwrap();
+	}
+
         let exploration = 0.0; // Just get best node.
         root.best_child(exploration).map(|node| node.m.unwrap())
     }
-}
-
-mod tests {
-    // TODO: make a fake game with branching_factor=1 to test correct signage of results.
-    // TODO: make a game with branching_factor=2: add or subtract to shared total
-
-    // or maybe just run tic tac toe against random many times and check that it always wins
 }
