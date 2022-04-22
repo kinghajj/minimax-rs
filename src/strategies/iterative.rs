@@ -39,7 +39,7 @@ impl<M: Copy> TranspositionTable<M> {
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
             table.push(Entry::<M> {
-                hash: 0,
+                high_hash: 0,
                 value: 0,
                 depth: 0,
                 flag: EntryFlag::Exact,
@@ -55,11 +55,11 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
-        if hash == entry.hash {
+        if high_bits(hash) == entry.high_hash {
             Some(*entry)
         } else if self.strategy == Replacement::TwoTier {
             let entry = &self.table[index + 1];
-            if hash == entry.hash {
+            if high_bits(hash) == entry.high_hash {
                 Some(*entry)
             } else {
                 None
@@ -94,7 +94,7 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
         };
         if let Some(index) = dest {
             self.table[index] = Entry {
-                hash,
+                high_hash: high_bits(hash),
                 value,
                 depth,
                 flag,

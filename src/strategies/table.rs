@@ -15,10 +15,9 @@ pub(super) enum EntryFlag {
     Lowerbound,
 }
 
-// TODO: Optimize size. Ideally 16 bytes or less.
 #[derive(Copy, Clone)]
 pub(super) struct Entry<M> {
-    pub(super) hash: u64,
+    pub(super) high_hash: u32,
     pub(super) value: Evaluation,
     pub(super) depth: u8,
     pub(super) flag: EntryFlag,
@@ -28,10 +27,13 @@ pub(super) struct Entry<M> {
 
 #[test]
 fn test_entry_size() {
-    // TODO: ratchet down
-    assert!(std::mem::size_of::<Entry<u32>>() <= 24);
-    assert!(std::mem::size_of::<Mutex<Entry<u32>>>() <= 32);
-    assert_eq!(std::mem::size_of::<ConcurrentEntry<u32>>(), 20);
+    assert!(std::mem::size_of::<Entry<[u8; 4]>>() <= 16);
+    assert!(std::mem::size_of::<Mutex<Entry<[u8; 4]>>>() <= 20);
+    assert!(std::mem::size_of::<ConcurrentEntry<[u8; 4]>>() <= 16);
+}
+
+pub(super) fn high_bits(hash: u64) -> u32 {
+    (hash >> 32) as u32
 }
 
 // A trait for a transposition table. The methods are mutual exclusion, but
@@ -170,7 +172,7 @@ impl<M> ShardedTable<M> {
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
             table.push(Mutex::new(Entry::<M> {
-                hash: 0,
+                high_hash: 0,
                 value: 0,
                 depth: 0,
                 flag: EntryFlag::Exact,
@@ -187,7 +189,7 @@ impl<M: Copy> Table<M> for ShardedTable<M> {
         let index = (hash as usize) & self.mask;
         for i in index..index + 2 {
             let entry = self.table[i].lock();
-            if hash == entry.hash {
+            if high_bits(hash) == entry.high_hash {
                 return Some(*entry);
             }
         }
@@ -208,8 +210,14 @@ impl<M: Copy> ConcurrentTable<M> for ShardedTable<M> {
         let table_gen = self.generation.load(Ordering::Relaxed);
         // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
         let index = (hash as usize) & self.mask;
-        let new_entry =
-            Entry { hash, value, depth, flag, generation: table_gen, best_move: Some(best_move) };
+        let new_entry = Entry {
+            high_hash: high_bits(hash),
+            value,
+            depth,
+            flag,
+            generation: table_gen,
+            best_move: Some(best_move),
+        };
         {
             let mut entry = self.table[index].lock();
             if entry.generation != table_gen || entry.depth <= depth {
@@ -244,7 +252,7 @@ impl<M> RacyTable<M> {
         let mut table = Vec::with_capacity(size);
         for _ in 0..size {
             table.push(Entry::<M> {
-                hash: 0,
+                high_hash: 0,
                 value: 0,
                 depth: 0,
                 flag: EntryFlag::Exact,
@@ -260,7 +268,7 @@ impl<M: Copy> Table<M> for RacyTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = self.table[index];
-        if hash == entry.hash {
+        if high_bits(hash) == entry.high_hash {
             return Some(entry);
         }
         None
@@ -284,7 +292,7 @@ impl<M: Copy> ConcurrentTable<M> for RacyTable<M> {
             #[allow(mutable_transmutes)]
             let ptr = unsafe { std::mem::transmute::<&Entry<M>, &mut Entry<M>>(entry) };
             *ptr = Entry {
-                hash,
+                high_hash: high_bits(hash),
                 value,
                 depth,
                 flag,
@@ -321,11 +329,12 @@ impl<M: Copy> Table<M> for LockfreeTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
-        if (hash >> 32) as u32 == entry.high_hash.load(Ordering::SeqCst) {
+        let table_hash = entry.high_hash.load(Ordering::SeqCst);
+        if high_bits(hash) | 1 == table_hash | 1 {
             // Copy contents
             let ret = Some(Entry {
                 // No one reads the hash.
-                hash: 0,
+                high_hash: 0,
                 value: entry.value,
                 depth: entry.depth,
                 flag: entry.flag,
@@ -333,7 +342,7 @@ impl<M: Copy> Table<M> for LockfreeTable<M> {
                 best_move: entry.best_move,
             });
             // Verify the hash hasn't changed during the copy.
-            if (hash >> 32) as u32 == entry.high_hash.load(Ordering::SeqCst) {
+            if table_hash == entry.high_hash.load(Ordering::SeqCst) {
                 return ret;
             }
         }
@@ -386,18 +395,21 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
                 return;
             }
             // Try to set to sentinel value:
-            if entry.high_hash.compare_exchange_weak(
-                x,
-                Self::WRITING_SENTINEL,
-                Ordering::SeqCst,
-                Ordering::Relaxed,
-            ).is_err() {
+            if entry
+                .high_hash
+                .compare_exchange_weak(
+                    x,
+                    Self::WRITING_SENTINEL,
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                )
+                .is_err()
+            {
                 // Someone just started writing, just forget it.
                 return;
             }
 
             // concurrent_lookup will throw out any read that occurs across a write.
-            // Unless it's a write of the same hash, but close enough.
             #[allow(mutable_transmutes)]
             let entry = unsafe {
                 std::mem::transmute::<&ConcurrentEntry<M>, &mut ConcurrentEntry<M>>(entry)
@@ -409,7 +421,14 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
             entry.best_move = Some(best_move);
 
             // Set hash to correct value to indicate done.
-            entry.high_hash.store((hash >> 32) as u32, Ordering::SeqCst);
+            let new_hash = if high_bits(hash) | 1 == x | 1 {
+                // If we're overwriting the same hash, flip the lowest bit to
+                // catch any readers reading across this change.
+                x ^ 1
+            } else {
+                high_bits(hash)
+            };
+            entry.high_hash.store(new_hash, Ordering::SeqCst);
         }
     }
 

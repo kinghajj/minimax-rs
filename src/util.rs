@@ -50,7 +50,7 @@ impl<M> Default for MovePool<M> {
 
 impl<M> MovePool<M> {
     pub(crate) fn alloc(&mut self) -> Vec<M> {
-        self.pool.pop().unwrap_or_else(Vec::new)
+        self.pool.pop().unwrap_or_default()
     }
 
     pub(crate) fn free(&mut self, mut vec: Vec<M>) {
