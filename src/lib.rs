@@ -9,7 +9,7 @@ pub use interface::{
 };
 pub use strategies::iterative::{IterativeOptions, IterativeSearch, Replacement};
 pub use strategies::lazy_smp::{LazySmp, LazySmpOptions};
-pub use strategies::mcts::MonteCarloTreeSearch;
+pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch};
 pub use strategies::negamax::Negamax;
 pub use strategies::random::Random;
 pub use strategies::ybw::{ParallelYbw, YbwOptions};

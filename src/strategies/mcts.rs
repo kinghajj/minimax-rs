@@ -77,22 +77,56 @@ impl<M> Node<M> {
         let win_ratio = (score + visits) / (2.0 * visits);
         win_ratio + exploration_score * (2.0 * log_parent_visits / visits).sqrt()
     }
+
+    fn update_stats(&self, result: i32) -> i32 {
+        self.visits.fetch_add(1, Ordering::SeqCst);
+        self.score.fetch_add(result, Ordering::SeqCst);
+        result
+    }
+}
+
+/// Options for MonteCarloTreeSearch.
+pub struct MCTSOptions {
+    max_rollout_depth: u32,
+    rollouts_before_expanding: u32,
+    // None means use num_cpus.
+    // TODO: num_threads: Option<u32>,
+    // TODO: rollout_policy
+}
+
+impl Default for MCTSOptions {
+    fn default() -> Self {
+        Self { max_rollout_depth: 100, rollouts_before_expanding: 0 }
+    }
+}
+
+impl MCTSOptions {
+    /// Set a maximum depth for rollouts. Rollouts that reach this depth are
+    /// stopped and assigned a Draw value.
+    pub fn with_max_rollout_depth(mut self, depth: u32) -> Self {
+        self.max_rollout_depth = depth;
+        self
+    }
+
+    /// How many rollouts to run on a single leaf node before expanding its
+    /// children. The default value is 0, where every rollout expands some
+    /// leaf node.
+    pub fn with_rollouts_before_expanding(mut self, rollouts: u32) -> Self {
+        self.rollouts_before_expanding = rollouts;
+        self
+    }
 }
 
 pub struct MonteCarloTreeSearch {
     // TODO: Evaluator
-
-    // Config
-    max_rollout_depth: usize,
+    options: MCTSOptions,
     max_rollouts: u32,
     //max_time: Duration,
-    // TODO: rollouts_per_node
-    // TODO: num_threads
 }
 
 impl MonteCarloTreeSearch {
-    pub fn new() -> Self {
-        Self { max_rollout_depth: 200, max_rollouts: 100 }
+    pub fn new(options: MCTSOptions) -> Self {
+        Self { options, max_rollouts: 100 }
     }
 
     // Returns score for this node. +1 for win of original player to move.
@@ -102,7 +136,7 @@ impl MonteCarloTreeSearch {
         G::S: Clone,
     {
         let mut rng = rand::thread_rng();
-        let mut depth = self.max_rollout_depth;
+        let mut depth = self.options.max_rollout_depth;
         let mut state = s.clone();
         let mut moves = Vec::new();
         let mut sign = 1;
@@ -134,31 +168,30 @@ impl MonteCarloTreeSearch {
         G::S: Clone,
     {
         if force_rollout {
-            let result = self.rollout::<G>(state);
-
-            // Backpropagate.
-            node.visits.fetch_add(1, Ordering::SeqCst);
-            node.score.fetch_add(result, Ordering::SeqCst);
-            return result;
+            return node.update_stats(self.rollout::<G>(state));
         }
 
-        let expansion = node.expansion.get().unwrap_or_else(|| {
-            // Expand this node, and force a rollout when we recurse.
-            force_rollout = true;
-            node.expansion.try_set(new_expansion::<G>(state))
-        });
+        let expansion = match node.expansion.get() {
+            Some(expansion) => expansion,
+            None => {
+                // This is a leaf node.
+                if node.visits.load(Ordering::SeqCst) < self.options.rollouts_before_expanding {
+                    // Just rollout from here.
+                    return node.update_stats(self.rollout::<G>(state));
+                } else {
+                    // Expand this node, and force a rollout when we recurse.
+                    force_rollout = true;
+                    node.expansion.try_set(new_expansion::<G>(state))
+                }
+            }
+        };
 
         if let Some(winner) = expansion.winner {
-            let result = match winner {
+            return node.update_stats(match winner {
                 Winner::PlayerJustMoved => 1,
                 Winner::PlayerToMove => -1,
                 Winner::Draw => 0,
-            };
-
-            // Backpropagate.
-            node.visits.fetch_add(1, Ordering::SeqCst);
-            node.score.fetch_add(result, Ordering::SeqCst);
-            return result;
+            });
         }
 
         // Recurse.
@@ -167,11 +200,7 @@ impl MonteCarloTreeSearch {
         m.apply(state);
         let result = -self.simulate::<G>(next, state, force_rollout);
         m.undo(state);
-
-        // Backpropagate.
-        node.visits.fetch_add(1, Ordering::SeqCst);
-        node.score.fetch_add(result, Ordering::SeqCst);
-        result
+        node.update_stats(result)
     }
 }
 
