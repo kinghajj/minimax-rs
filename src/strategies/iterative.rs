@@ -118,6 +118,7 @@ pub struct IterativeOptions {
     aspiration_window: Option<Evaluation>,
     step_increment: u8,
     max_quiescence_depth: u8,
+    min_reorder_moves_depth: u8,
 }
 
 impl IterativeOptions {
@@ -129,6 +130,7 @@ impl IterativeOptions {
             aspiration_window: None,
             step_increment: 1,
             max_quiescence_depth: 0,
+            min_reorder_moves_depth: u8::MAX,
         }
     }
 }
@@ -182,6 +184,15 @@ impl IterativeOptions {
         self.max_quiescence_depth = depth;
         self
     }
+
+    /// Enable the Evaluator's move reordering after generating moves for all
+    /// nodes at this depth or higher. Reordering can be an expensive
+    /// operation, but it could cut off a lot of nodes if done well high in
+    /// the search tree.
+    pub fn with_min_reorder_moves_depth(mut self, depth: u8) -> Self {
+        self.min_reorder_moves_depth = depth;
+        self
+    }
 }
 
 pub(super) struct Negamaxer<E: Evaluator, T> {
@@ -193,6 +204,7 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     // Config
     max_quiescence_depth: u8,
     null_window_search: bool,
+    min_reorder_moves_depth: u8,
 
     // Stats
     nodes_explored: u64,
@@ -207,6 +219,7 @@ where
 {
     pub(super) fn new(
         table: T, eval: E, max_quiescence_depth: u8, null_window_search: bool,
+        min_reorder_moves_depth: u8,
     ) -> Self {
         Self {
             timeout: Arc::new(AtomicBool::new(false)),
@@ -215,6 +228,7 @@ where
             move_pool: MovePool::default(),
             max_quiescence_depth,
             null_window_search,
+            min_reorder_moves_depth,
             nodes_explored: 0,
             total_generate_move_calls: 0,
             total_generated_moves: 0,
@@ -303,11 +317,16 @@ where
             self.move_pool.free(moves);
             return Some(WORST_EVAL);
         }
+
+        // Reorder moves.
+        if depth >= self.min_reorder_moves_depth {
+            self.eval.reorder_moves(s, &mut moves);
+        }
         if let Some(good) = good_move {
-            // Rearrange so predicted good move is first.
+            // Move predicted good move to the front.
             for i in 0..moves.len() {
                 if moves[i] == good {
-                    moves.swap(0, i);
+                    moves[0..i + 1].rotate_right(1);
                     break;
                 }
             }
@@ -391,8 +410,13 @@ where
 {
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
-        let negamaxer =
-            Negamaxer::new(table, eval, opts.max_quiescence_depth, opts.null_window_search);
+        let negamaxer = Negamaxer::new(
+            table,
+            eval,
+            opts.max_quiescence_depth,
+            opts.null_window_search,
+            opts.min_reorder_moves_depth,
+        );
         IterativeSearch {
             max_depth: 100,
             max_time: Duration::from_secs(5),

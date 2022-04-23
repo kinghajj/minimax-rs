@@ -21,6 +21,29 @@ pub trait Evaluator {
     /// Evaluate the non-terminal state from the persective of the player to
     /// move next.
     fn evaluate(&self, s: &<Self::G as Game>::S) -> Evaluation;
+
+    /// After generating moves, reorder them to explore the most promising first.
+    /// The default implementation evaluates all thes game states and sorts highest Evaluation first.
+    fn reorder_moves(&self, s: &mut <Self::G as Game>::S, moves: &mut [<Self::G as Game>::M])
+    where
+        <Self::G as Game>::M: Copy,
+    {
+        let mut evals = Vec::with_capacity(moves.len());
+        for &m in moves.iter() {
+            m.apply(s);
+            let eval = if let Some(winner) = Self::G::get_winner(s) {
+                -winner.evaluate()
+            } else {
+                -self.evaluate(s)
+            };
+            evals.push((eval, m));
+            m.undo(s);
+        }
+        evals.sort_by_key(|eval| eval.0);
+        for (m, eval) in moves.iter_mut().zip(evals) {
+            *m = eval.1;
+        }
+    }
 }
 
 /// Defines how a move affects the game state.

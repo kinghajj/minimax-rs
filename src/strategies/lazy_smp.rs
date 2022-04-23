@@ -221,14 +221,21 @@ where
             let waiter = signal.clone();
             spawn(move || {
                 let mut helper = Helper {
-                    negamaxer: Negamaxer::new(table2, eval2, opts.max_quiescence_depth, true),
+                    negamaxer: Negamaxer::new(
+                        table2,
+                        eval2,
+                        opts.max_quiescence_depth,
+                        true,
+                        u8::MAX,
+                    ),
                     command: command2,
                     waiter,
                 };
                 helper.process();
             });
         }
-        let negamaxer = Negamaxer::new(table.clone(), eval, opts.max_quiescence_depth, true);
+        let negamaxer =
+            Negamaxer::new(table.clone(), eval, opts.max_quiescence_depth, true, u8::MAX);
         LazySmp {
             max_depth: 100,
             max_time: Duration::from_secs(5),
