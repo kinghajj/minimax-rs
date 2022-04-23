@@ -3,8 +3,8 @@ use super::util::AtomicBox;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::thread::spawn;
 
 struct Node<M> {
@@ -49,9 +49,11 @@ impl<M> Node<M> {
 
     // Choose best child based on UCT.
     fn best_child(&self, exploration_score: f32) -> Option<&Node<M>> {
-	let mut log_visits = (self.visits.load(Ordering::SeqCst) as f32).log2();
-	// Keep this numerator non-negative.
-	if log_visits < 0.0 { log_visits = 0.0; }
+        let mut log_visits = (self.visits.load(Ordering::SeqCst) as f32).log2();
+        // Keep this numerator non-negative.
+        if log_visits < 0.0 {
+            log_visits = 0.0;
+        }
 
         let expansion = self.expansion.get()?;
         // Find a node, randomly chosen among the best scores.
@@ -102,11 +104,7 @@ pub struct MCTSOptions {
 
 impl Default for MCTSOptions {
     fn default() -> Self {
-        Self {
-	    max_rollout_depth: 100,
-	    rollouts_before_expanding: 0,
-	    num_threads: None,
-	}
+        Self { max_rollout_depth: 100, rollouts_before_expanding: 0, num_threads: None }
     }
 }
 
@@ -128,8 +126,8 @@ impl MCTSOptions {
 
     /// How many threads to run. Defaults to num_cpus.
     pub fn with_num_threads(mut self, threads: u32) -> Self {
-	self.num_threads = Some(threads as usize);
-	self
+        self.num_threads = Some(threads as usize);
+        self
     }
 }
 
@@ -146,6 +144,11 @@ pub struct MonteCarloTreeSearch {
 impl MonteCarloTreeSearch {
     pub fn new(options: MCTSOptions) -> Self {
         Self { options, max_rollouts: 100 }
+    }
+
+    /// If no time limit is set, runs this many rollouts in choose_move.
+    pub fn set_max_rollouts(rollouts: u32) {
+        self.max_rollouts = rollouts;
     }
 
     // Returns score for this node. +1 for win of original player to move.
@@ -220,7 +223,7 @@ impl MonteCarloTreeSearch {
         let result = -self.simulate::<G>(next, state, force_rollout);
         m.undo(state);
 
-	// Backpropagate.
+        // Backpropagate.
         node.update_stats(result)
     }
 }
@@ -234,30 +237,32 @@ where
         let root = Arc::new(Node::<G::M>::new(None));
         root.expansion.try_set(new_expansion::<G>(s));
 
-	let num_threads = self.options.num_threads.unwrap_or_else(num_cpus::get) as u32;
-	let num_rollouts = self.max_rollouts / num_threads;
+        let num_threads = self.options.num_threads.unwrap_or_else(num_cpus::get) as u32;
+        let num_rollouts = self.max_rollouts / num_threads;
 
-	let threads = (1..num_threads).map(|_| {
-	    let node = root.clone();
-	    let mut state = s.clone();
-	    let mcts = self.clone();
-	    spawn(move || {
-		for _ in 0..num_rollouts {
-		    mcts.simulate::<G>(&node, &mut state, false);
-		}
-	    })
-	}).collect::<Vec<_>>();
+        let threads = (1..num_threads)
+            .map(|_| {
+                let node = root.clone();
+                let mut state = s.clone();
+                let mcts = self.clone();
+                spawn(move || {
+                    for _ in 0..num_rollouts {
+                        mcts.simulate::<G>(&node, &mut state, false);
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
 
-	let mut state = s.clone();
-	let extra = self.max_rollouts - num_rollouts * num_threads;
-	for _ in 0..num_rollouts + extra {
-	    self.simulate::<G>(&root, &mut state, false);
-	}
+        let mut state = s.clone();
+        let extra = self.max_rollouts - num_rollouts * num_threads;
+        for _ in 0..num_rollouts + extra {
+            self.simulate::<G>(&root, &mut state, false);
+        }
 
-	// Wait for threads.
-	for thread in threads {
-	    thread.join().unwrap();
-	}
+        // Wait for threads.
+        for thread in threads {
+            thread.join().unwrap();
+        }
 
         let exploration = 0.0; // Just get best node.
         root.best_child(exploration).map(|node| node.m.unwrap())
