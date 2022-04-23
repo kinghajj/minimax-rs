@@ -147,7 +147,7 @@ impl MonteCarloTreeSearch {
     }
 
     /// If no time limit is set, runs this many rollouts in choose_move.
-    pub fn set_max_rollouts(rollouts: u32) {
+    pub fn set_max_rollouts(&mut self, rollouts: u32) {
         self.max_rollouts = rollouts;
     }
 
