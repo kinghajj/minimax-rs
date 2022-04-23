@@ -176,7 +176,7 @@ impl MonteCarloTreeSearch {
             }
 
             moves.clear();
-            G::generate_moves(s, &mut moves);
+            G::generate_moves(&state, &mut moves);
             let m = moves.choose(&mut rng).unwrap();
             m.apply(&mut state);
             sign = -sign;
