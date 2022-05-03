@@ -266,21 +266,14 @@ fn main() {
     );
     dumb.set_max_depth(8);
 
-    let opts = IterativeOptions::new()
-        .with_table_byte_size(64_000_000)
-        .with_double_step_increment()
-        .with_aspiration_window(5);
-    let mut iterative = IterativeSearch::new(BasicEvaluator::default(), opts);
+    let opts =
+        IterativeOptions::new().with_table_byte_size(64_000_000).with_double_step_increment();
+    let mut iterative =
+        IterativeSearch::new(BasicEvaluator::default(), opts.clone().with_aspiration_window(5));
     iterative.set_max_depth(12);
-    let mut parallelybw = ParallelYbw::new(
-        BasicEvaluator::default(),
-        YbwOptions::new().with_table_byte_size(64_000_000).with_double_step_increment(),
-    );
+    let mut parallelybw = ParallelYbw::new(BasicEvaluator::default(), opts, YbwOptions::new());
     parallelybw.set_max_depth(12);
-    let mut lazysmp = LazySmp::new(
-        BasicEvaluator::default(),
-        LazySmpOptions::new().with_table_byte_size(64_000_000).with_double_step_increment(),
-    );
+    let mut lazysmp = LazySmp::new(BasicEvaluator::default(), opts, LazySmpOptions::new());
     lazysmp.set_max_depth(12);
 
     let mut strategies: [&mut dyn Strategy<self::Game>; 4] =

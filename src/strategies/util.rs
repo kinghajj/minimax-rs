@@ -41,7 +41,7 @@ pub(super) fn timeout_signal(dur: Duration) -> Arc<AtomicBool> {
     signal
 }
 
-// This exists to be wrapped in a mutex, because it didn't work when I tried a tuple.'
+// This exists to be wrapped in a mutex, because it didn't work when I tried a tuple.
 pub(super) struct ValueMove<M> {
     value: Evaluation,
     m: M,

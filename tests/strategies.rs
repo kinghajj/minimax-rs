@@ -176,10 +176,8 @@ fn compare_plain_negamax() {
                 );
             }
 
-            let mut ybw = ParallelYbw::new(
-                RandomEvaluator::default(),
-                YbwOptions::default().with_table_byte_size(64000),
-            );
+            let opt = IterativeOptions::new().with_table_byte_size(64000);
+            let mut ybw = ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
             ybw.set_max_depth(max_depth);
             let ybw_move = ybw.choose_move(&b).unwrap();
             let ybw_value = ybw.root_value();
@@ -192,10 +190,8 @@ fn compare_plain_negamax() {
                 b
             );
 
-            let mut lazysmp = LazySmp::new(
-                RandomEvaluator::default(),
-                LazySmpOptions::default().with_table_byte_size(64000),
-            );
+            let mut lazysmp =
+                LazySmp::new(RandomEvaluator::default(), opt, LazySmpOptions::default());
             lazysmp.set_max_depth(max_depth);
             let lazysmp_move = lazysmp.choose_move(&b).unwrap();
             let lazysmp_value = lazysmp.root_value();
@@ -215,6 +211,7 @@ fn compare_plain_negamax() {
 // more parallelism in the parallel strategies.
 #[test]
 fn compare_deep_negamax() {
+    let opt = IterativeOptions::new().with_table_byte_size(64000);
     for _ in 0..10 {
         for max_depth in 0..9 {
             let b = generate_random_state(10);
@@ -223,28 +220,21 @@ fn compare_deep_negamax() {
             negamax.choose_move(&b).unwrap();
             let value = negamax.root_value();
 
-            let mut iterative = IterativeSearch::new(
-                RandomEvaluator::default(),
-                IterativeOptions::new().with_table_byte_size(64000),
-            );
+            let mut iterative = IterativeSearch::new(RandomEvaluator::default(), opt);
             iterative.set_max_depth(max_depth);
             iterative.choose_move(&b).unwrap();
             let iterative_value = iterative.root_value();
             assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);
 
-            let mut parallel = ParallelYbw::new(
-                RandomEvaluator::default(),
-                YbwOptions::default().with_table_byte_size(64000),
-            );
+            let mut parallel =
+                ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
             parallel.set_max_depth(max_depth);
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();
             assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
 
-            let mut lazysmp = LazySmp::new(
-                RandomEvaluator::default(),
-                LazySmpOptions::default().with_table_byte_size(64000),
-            );
+            let mut lazysmp =
+                LazySmp::new(RandomEvaluator::default(), opt, LazySmpOptions::default());
             lazysmp.set_max_depth(max_depth);
             lazysmp.choose_move(&b).unwrap();
             let lazysmp_value = lazysmp.root_value();

@@ -9,7 +9,7 @@ extern crate num_cpus;
 extern crate rand;
 
 use super::super::interface::*;
-use super::iterative::Negamaxer;
+use super::iterative::{IterativeOptions, Negamaxer};
 use super::table::*;
 use super::util::*;
 
@@ -23,11 +23,6 @@ use std::time::{Duration, Instant};
 /// Options to use for the iterative search engine.
 #[derive(Clone, Copy)]
 pub struct LazySmpOptions {
-    table_byte_size: usize,
-    step_increment: u8,
-    max_quiescence_depth: u8,
-    aspiration_window: Option<Evaluation>,
-    null_window_search: bool,
     // Default is one per core.
     num_threads: Option<usize>,
     // TODO: optional bonus thread local TT?
@@ -37,14 +32,7 @@ pub struct LazySmpOptions {
 
 impl LazySmpOptions {
     pub fn new() -> Self {
-        LazySmpOptions {
-            table_byte_size: 32_000_000,
-            step_increment: 1,
-            max_quiescence_depth: 0,
-            aspiration_window: None,
-            num_threads: None,
-            null_window_search: false,
-        }
+        LazySmpOptions { num_threads: None }
     }
 }
 
@@ -54,44 +42,7 @@ impl Default for LazySmpOptions {
     }
 }
 
-// TODO: extend this from IterativeOptions to share common fields.
 impl LazySmpOptions {
-    /// Approximately how large the transposition table should be in memory.
-    pub fn with_table_byte_size(mut self, size: usize) -> Self {
-        self.table_byte_size = size;
-        self
-    }
-
-    /// Increment the depth by two between iterations.
-    pub fn with_double_step_increment(mut self) -> Self {
-        self.step_increment = 2;
-        self
-    }
-
-    /// Enable [quiescence
-    /// search](https://en.wikipedia.org/wiki/Quiescence_search) at the leaves
-    /// of the search tree.  The Game must implement `generate_noisy_moves`
-    /// for the search to know when the state has become "quiet".
-    pub fn with_quiescence_search_depth(mut self, depth: u8) -> Self {
-        self.max_quiescence_depth = depth;
-        self
-    }
-
-    /// Whether to search first in a narrow window around the previous root
-    /// value on each iteration.
-    pub fn with_aspiration_window(mut self, window: Evaluation) -> Self {
-        self.aspiration_window = Some(window);
-        self
-    }
-
-    /// Whether to add null-window searches to try to prune branches that are
-    /// probably worse than those already found. Also known as principal
-    /// variation search.
-    pub fn with_null_window_search(mut self, null: bool) -> Self {
-        self.null_window_search = null;
-        self
-    }
-
     /// Set the total number of threads to use. Otherwise defaults to num_cpus.
     pub fn with_num_threads(mut self, num_threads: usize) -> Self {
         self.num_threads = Some(num_threads);
@@ -240,7 +191,7 @@ where
     command: Arc<Mutex<Command<<E::G as Game>::S>>>,
     signal: Arc<Condvar>,
 
-    opts: LazySmpOptions,
+    opts: IterativeOptions,
 
     // Runtime stats for the last move generated.
     prev_value: Evaluation,
@@ -270,7 +221,7 @@ where
     <E::G as Game>::M: Copy + Eq + Send,
     E: Clone + Send,
 {
-    pub fn new(eval: E, opts: LazySmpOptions) -> LazySmp<E>
+    pub fn new(eval: E, opts: IterativeOptions, smp_opts: LazySmpOptions) -> LazySmp<E>
     where
         E: 'static,
     {
@@ -279,21 +230,16 @@ where
         let signal = Arc::new(Condvar::new());
         let stats = Arc::new(SharedStats::new());
         // start n-1 helper threads
-        for _ in 1..opts.num_threads.unwrap_or_else(num_cpus::get) {
+        for _ in 1..smp_opts.num_threads.unwrap_or_else(num_cpus::get) {
             let table2 = table.clone();
             let eval2 = eval.clone();
+            let opts2 = opts.clone();
             let command2 = command.clone();
             let waiter = signal.clone();
             let stats2 = stats.clone();
             spawn(move || {
                 let mut helper = Helper {
-                    negamaxer: Negamaxer::new(
-                        table2,
-                        eval2,
-                        opts.max_quiescence_depth,
-                        opts.null_window_search,
-                        u8::MAX,
-                    ),
+                    negamaxer: Negamaxer::new(table2, eval2, opts2),
                     command: command2,
                     waiter,
                     stats: stats2,
@@ -301,8 +247,7 @@ where
                 helper.process();
             });
         }
-        let negamaxer =
-            Negamaxer::new(table.clone(), eval, opts.max_quiescence_depth, true, u8::MAX);
+        let negamaxer = Negamaxer::new(table.clone(), eval, opts.clone());
         LazySmp {
             max_depth: 100,
             max_time: Duration::from_secs(5),

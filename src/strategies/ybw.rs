@@ -8,6 +8,7 @@
 extern crate rayon;
 
 use super::super::interface::*;
+use super::iterative::IterativeOptions;
 use super::table::*;
 use super::util::*;
 
@@ -20,22 +21,12 @@ use std::time::{Duration, Instant};
 /// Options to use for the parallel search engine.
 #[derive(Clone, Copy)]
 pub struct YbwOptions {
-    table_byte_size: usize,
-    null_window_search: bool,
-    step_increment: u8,
-    max_quiescence_depth: u8,
     serial_cutoff_depth: u8,
 }
 
 impl YbwOptions {
     pub fn new() -> Self {
-        YbwOptions {
-            table_byte_size: 32_000_000,
-            null_window_search: true,
-            step_increment: 1,
-            max_quiescence_depth: 0,
-            serial_cutoff_depth: 1,
-        }
+        YbwOptions { serial_cutoff_depth: 1 }
     }
 }
 
@@ -46,32 +37,9 @@ impl Default for YbwOptions {
 }
 
 impl YbwOptions {
-    /// Approximately how large the transposition table should be in memory.
-    pub fn with_table_byte_size(mut self, size: usize) -> Self {
-        self.table_byte_size = size;
-        self
-    }
-
-    /// Whether to add null-window searches to try to prune branches that are
-    /// probably worse than those already found. Also known as principal
-    /// variation search.
-    pub fn with_null_window_search(mut self, null: bool) -> Self {
-        self.null_window_search = null;
-        self
-    }
-
-    /// Increment the depth by two between iterations.
-    pub fn with_double_step_increment(mut self) -> Self {
-        self.step_increment = 2;
-        self
-    }
-
-    /// Enable [quiescence
-    /// search](https://en.wikipedia.org/wiki/Quiescence_search) at the leaves
-    /// of the search tree.  The Game must implement `generate_noisy_moves`
-    /// for the search to know when the state has become "quiet".
-    pub fn with_quiescence_search_depth(mut self, depth: u8) -> Self {
-        self.max_quiescence_depth = depth;
+    /// At what depth should we stop trying to parallelize and just run serially.
+    pub fn with_serial_cutoff_depth(mut self, depth: u8) -> Self {
+        self.serial_cutoff_depth = depth;
         self
     }
 }
@@ -85,7 +53,8 @@ pub struct ParallelYbw<E: Evaluator> {
     prev_value: Evaluation,
     eval: E,
 
-    opts: YbwOptions,
+    opts: IterativeOptions,
+    ybw_opts: YbwOptions,
 
     // Runtime stats for the last move generated.
 
@@ -105,7 +74,7 @@ pub struct ParallelYbw<E: Evaluator> {
 }
 
 impl<E: Evaluator> ParallelYbw<E> {
-    pub fn new(eval: E, opts: YbwOptions) -> ParallelYbw<E> {
+    pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
         let table = LockfreeTable::new(opts.table_byte_size);
         ParallelYbw {
             max_depth: 100,
@@ -115,6 +84,7 @@ impl<E: Evaluator> ParallelYbw<E> {
             //move_pool: MovePool::<_>::default(),
             prev_value: 0,
             opts,
+            ybw_opts,
             eval,
             actual_depth: 0,
             nodes_explored: Vec::new(),
@@ -140,20 +110,6 @@ impl<E: Evaluator> ParallelYbw<E> {
     pub fn set_timeout(&mut self, max_time: Duration) {
         self.max_time = max_time;
         self.max_depth = 100;
-    }
-
-    /// Return a human-readable summary of the last move generation.
-    pub fn stats(&self) -> String {
-        let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
-        let mean_branching_factor =
-            self.total_generated_moves as f64 / self.total_generate_move_calls as f64;
-        let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
-            .powf((self.actual_depth as f64 + 1.0).recip());
-        let throughput =
-            (total_nodes_explored + self.next_depth_nodes) as f64 / self.wall_time.as_secs_f64();
-        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} transposition table hits.\n{} nodes/sec",
-		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
-		self.next_depth_nodes, self.table_hits, throughput as usize)
     }
 
     #[doc(hidden)]
@@ -258,7 +214,7 @@ impl<E: Evaluator> ParallelYbw<E> {
         let (best, best_move) = if alpha >= beta {
             // Skip search
             (initial_value, first_move)
-        } else if self.opts.serial_cutoff_depth >= depth {
+        } else if self.ybw_opts.serial_cutoff_depth >= depth {
             // Serial search
             let mut best = initial_value;
             let mut best_move = first_move;

@@ -34,7 +34,8 @@ fn bench_parallel(b: &mut Bencher) {
     b.iter(|| {
         let mut s = ParallelYbw::new(
             connect4::BasicEvaluator::default(),
-            YbwOptions::new().with_table_byte_size(32_000),
+            IterativeOptions::new().with_table_byte_size(32_000),
+            YbwOptions::new(),
         );
         s.set_max_depth(5);
         let m = s.choose_move(&board);

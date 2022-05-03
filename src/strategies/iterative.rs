@@ -112,13 +112,13 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
 /// Options to use for the iterative search engine.
 #[derive(Clone, Copy)]
 pub struct IterativeOptions {
-    table_byte_size: usize,
-    strategy: Replacement,
-    null_window_search: bool,
-    aspiration_window: Option<Evaluation>,
-    step_increment: u8,
-    max_quiescence_depth: u8,
-    min_reorder_moves_depth: u8,
+    pub(super) table_byte_size: usize,
+    pub(super) strategy: Replacement,
+    pub(super) null_window_search: bool,
+    pub(super) aspiration_window: Option<Evaluation>,
+    pub(super) step_increment: u8,
+    pub(super) max_quiescence_depth: u8,
+    pub(super) min_reorder_moves_depth: u8,
 }
 
 impl IterativeOptions {
@@ -202,9 +202,7 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     eval: E,
 
     // Config
-    max_quiescence_depth: u8,
-    null_window_search: bool,
-    min_reorder_moves_depth: u8,
+    opts: IterativeOptions,
 
     // Stats
     pub(crate) nodes_explored: u64,
@@ -217,18 +215,13 @@ where
     <E::G as Game>::S: Zobrist,
     <E::G as Game>::M: Copy + Eq,
 {
-    pub(super) fn new(
-        table: T, eval: E, max_quiescence_depth: u8, null_window_search: bool,
-        min_reorder_moves_depth: u8,
-    ) -> Self {
+    pub(super) fn new(table: T, eval: E, opts: IterativeOptions) -> Self {
         Self {
             timeout: Arc::new(AtomicBool::new(false)),
             table,
             eval,
             move_pool: MovePool::default(),
-            max_quiescence_depth,
-            null_window_search,
-            min_reorder_moves_depth,
+            opts,
             nodes_explored: 0,
             total_generate_move_calls: 0,
             total_generated_moves: 0,
@@ -296,7 +289,7 @@ where
         if depth == 0 {
             // Evaluate quiescence search on leaf nodes.
             // Will just return the node's evaluation if quiescence search is disabled.
-            return self.noisy_negamax(s, self.max_quiescence_depth, alpha, beta);
+            return self.noisy_negamax(s, self.opts.max_quiescence_depth, alpha, beta);
         }
         if let Some(winner) = E::G::get_winner(s) {
             return Some(winner.evaluate());
@@ -319,7 +312,7 @@ where
         }
 
         // Reorder moves.
-        if depth >= self.min_reorder_moves_depth {
+        if depth >= self.opts.min_reorder_moves_depth {
             self.eval.reorder_moves(s, &mut moves);
         }
         if let Some(good) = good_move {
@@ -357,7 +350,7 @@ where
                 alpha = value;
                 // Now that we've found a good move, assume following moves
                 // are worse, and seek to cull them without full evaluation.
-                null_window = self.null_window_search;
+                null_window = self.opts.null_window_search;
             }
             if alpha >= beta {
                 break;
@@ -409,13 +402,7 @@ where
 {
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
-        let negamaxer = Negamaxer::new(
-            table,
-            eval,
-            opts.max_quiescence_depth,
-            opts.null_window_search,
-            opts.min_reorder_moves_depth,
-        );
+        let negamaxer = Negamaxer::new(table, eval, opts.clone());
         IterativeSearch {
             max_depth: 100,
             max_time: Duration::from_secs(5),
