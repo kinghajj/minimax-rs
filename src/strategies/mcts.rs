@@ -1,11 +1,12 @@
 use super::super::interface::*;
-use super::util::AtomicBox;
+use super::util::{timeout_signal, AtomicBox};
 
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::spawn;
+use std::time::Duration;
 
 struct Node<M> {
     // The Move to get from the parent to here.
@@ -85,10 +86,11 @@ impl<M> Node<M> {
         win_ratio + exploration_score * (2.0 * log_parent_visits / visits).sqrt()
     }
 
-    fn update_stats(&self, result: i32) -> i32 {
+    fn update_stats(&self, result: i32) -> Option<i32> {
         self.visits.fetch_add(1, Ordering::SeqCst);
         self.score.fetch_add(result, Ordering::SeqCst);
-        result
+        // Always return Some, as we aren't timed out.
+        Some(result)
     }
 }
 
@@ -138,16 +140,29 @@ pub struct MonteCarloTreeSearch {
     // TODO: Evaluator
     options: MCTSOptions,
     max_rollouts: u32,
-    //max_time: Duration,
+    max_time: Duration,
+    timeout: Arc<AtomicBool>,
 }
 
 impl MonteCarloTreeSearch {
     pub fn new(options: MCTSOptions) -> Self {
-        Self { options, max_rollouts: 100 }
+        Self {
+            options,
+            max_rollouts: 0,
+            max_time: Duration::from_secs(5),
+            timeout: Arc::new(AtomicBool::new(false)),
+        }
     }
 
-    /// If no time limit is set, runs this many rollouts in choose_move.
+    /// Set the time limit per move.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.max_rollouts = 0;
+        self.max_time = timeout;
+    }
+
+    /// Instead of a timeout, run this many rollouts to choose a move.
     pub fn set_max_rollouts(&mut self, rollouts: u32) {
+        self.max_time = Duration::default();
         self.max_rollouts = rollouts;
     }
 
@@ -185,10 +200,15 @@ impl MonteCarloTreeSearch {
     }
 
     // Explore the tree, make a new node, rollout, backpropagate.
-    fn simulate<G: Game>(&self, node: &Node<G::M>, state: &mut G::S, mut force_rollout: bool) -> i32
+    fn simulate<G: Game>(
+        &self, node: &Node<G::M>, state: &mut G::S, mut force_rollout: bool,
+    ) -> Option<i32>
     where
         G::S: Clone,
     {
+        if self.timeout.load(Ordering::Relaxed) {
+            return None;
+        }
         if force_rollout {
             return node.update_stats(self.rollout::<G>(state));
         }
@@ -220,7 +240,7 @@ impl MonteCarloTreeSearch {
         let next = node.best_child(1.).unwrap();
         let m = next.m.as_ref().unwrap();
         m.apply(state);
-        let result = -self.simulate::<G>(next, state, force_rollout);
+        let result = -self.simulate::<G>(next, state, force_rollout)?;
         m.undo(state);
 
         // Backpropagate.
@@ -238,7 +258,17 @@ where
         root.expansion.try_set(new_expansion::<G>(s));
 
         let num_threads = self.options.num_threads.unwrap_or_else(num_cpus::get) as u32;
-        let num_rollouts = self.max_rollouts / num_threads;
+        let (rollouts_per_thread, extra) = if self.max_rollouts == 0 {
+            (u32::MAX, 0)
+        } else {
+            let rollouts_per_thread = self.max_rollouts / num_threads;
+            (rollouts_per_thread, self.max_rollouts - rollouts_per_thread * num_threads)
+        };
+        self.timeout = if self.max_time == Duration::default() {
+            Arc::new(AtomicBool::new(false))
+        } else {
+            timeout_signal(self.max_time)
+        };
 
         let threads = (1..num_threads)
             .map(|_| {
@@ -246,17 +276,20 @@ where
                 let mut state = s.clone();
                 let mcts = self.clone();
                 spawn(move || {
-                    for _ in 0..num_rollouts {
-                        mcts.simulate::<G>(&node, &mut state, false);
+                    for _ in 0..rollouts_per_thread {
+                        if mcts.simulate::<G>(&node, &mut state, false).is_none() {
+                            break;
+                        }
                     }
                 })
             })
             .collect::<Vec<_>>();
 
         let mut state = s.clone();
-        let extra = self.max_rollouts - num_rollouts * num_threads;
-        for _ in 0..num_rollouts + extra {
-            self.simulate::<G>(&root, &mut state, false);
+        for _ in 0..rollouts_per_thread + extra {
+            if self.simulate::<G>(&root, &mut state, false).is_none() {
+                break;
+            }
         }
 
         // Wait for threads.
