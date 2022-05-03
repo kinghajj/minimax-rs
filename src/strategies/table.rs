@@ -1,7 +1,4 @@
-extern crate parking_lot;
-
 use crate::interface::*;
-use parking_lot::Mutex;
 use std::cmp::{max, min};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -28,7 +25,6 @@ pub(super) struct Entry<M> {
 #[test]
 fn test_entry_size() {
     assert!(std::mem::size_of::<Entry<[u8; 4]>>() <= 16);
-    assert!(std::mem::size_of::<Mutex<Entry<[u8; 4]>>>() <= 20);
     assert!(std::mem::size_of::<ConcurrentEntry<[u8; 4]>>() <= 16);
 }
 
@@ -153,84 +149,6 @@ impl<M: Copy, T: Table<M> + ConcurrentTable<M>> Table<M> for Arc<T> {
     }
     fn advance_generation(&mut self) {
         self.concurrent_advance_generation()
-    }
-}
-
-pub(super) struct ShardedTable<M> {
-    table: Vec<Mutex<Entry<M>>>,
-    mask: usize,
-    // Incremented for each iterative deepening run.
-    // Values from old generations are always overwritten.
-    generation: AtomicU8,
-}
-
-#[allow(dead_code)]
-impl<M> ShardedTable<M> {
-    pub(super) fn new(table_byte_size: usize) -> Self {
-        let size = (table_byte_size / std::mem::size_of::<Mutex<Entry<M>>>()).next_power_of_two();
-        let mask = (size - 1) & !1;
-        let mut table = Vec::with_capacity(size);
-        for _ in 0..size {
-            table.push(Mutex::new(Entry::<M> {
-                high_hash: 0,
-                value: 0,
-                depth: 0,
-                flag: EntryFlag::Exact,
-                generation: 0,
-                best_move: None,
-            }));
-        }
-        Self { table, mask, generation: AtomicU8::new(0) }
-    }
-}
-
-impl<M: Copy> Table<M> for ShardedTable<M> {
-    fn lookup(&self, hash: u64) -> Option<Entry<M>> {
-        let index = (hash as usize) & self.mask;
-        for i in index..index + 2 {
-            let entry = self.table[i].lock();
-            if high_bits(hash) == entry.high_hash {
-                return Some(*entry);
-            }
-        }
-        None
-    }
-    fn store(&mut self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M) {
-        self.concurrent_store(hash, value, depth, flag, best_move)
-    }
-    fn advance_generation(&mut self) {
-        self.concurrent_advance_generation()
-    }
-}
-
-impl<M: Copy> ConcurrentTable<M> for ShardedTable<M> {
-    fn concurrent_store(
-        &self, hash: u64, value: Evaluation, depth: u8, flag: EntryFlag, best_move: M,
-    ) {
-        let table_gen = self.generation.load(Ordering::Relaxed);
-        // index points to the first of a pair of entries, the depth-preferred entry and the always-replace entry.
-        let index = (hash as usize) & self.mask;
-        let new_entry = Entry {
-            high_hash: high_bits(hash),
-            value,
-            depth,
-            flag,
-            generation: table_gen,
-            best_move: Some(best_move),
-        };
-        {
-            let mut entry = self.table[index].lock();
-            if entry.generation != table_gen || entry.depth <= depth {
-                *entry = new_entry;
-                return;
-            }
-        }
-        // Otherwise, always overwrite second entry.
-        *self.table[index + 1].lock() = new_entry;
-    }
-
-    fn concurrent_advance_generation(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
     }
 }
 

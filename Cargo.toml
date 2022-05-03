@@ -12,7 +12,6 @@ license = "MIT"
 
 [dependencies]
 num_cpus = "1.0"
-parking_lot = "^0.11"
 rand = "0.8"
 rayon = "^1.5"
 
