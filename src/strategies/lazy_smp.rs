@@ -15,7 +15,7 @@ use super::util::*;
 
 use rand::seq::SliceRandom;
 use std::cmp::max;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -27,6 +27,7 @@ pub struct LazySmpOptions {
     step_increment: u8,
     max_quiescence_depth: u8,
     aspiration_window: Option<Evaluation>,
+    null_window_search: bool,
     // Default is one per core.
     num_threads: Option<usize>,
     // TODO: optional bonus thread local TT?
@@ -42,6 +43,7 @@ impl LazySmpOptions {
             max_quiescence_depth: 0,
             aspiration_window: None,
             num_threads: None,
+            null_window_search: false,
         }
     }
 }
@@ -52,6 +54,7 @@ impl Default for LazySmpOptions {
     }
 }
 
+// TODO: extend this from IterativeOptions to share common fields.
 impl LazySmpOptions {
     /// Approximately how large the transposition table should be in memory.
     pub fn with_table_byte_size(mut self, size: usize) -> Self {
@@ -74,15 +77,24 @@ impl LazySmpOptions {
         self
     }
 
-    pub fn with_num_threads(mut self, num_threads: usize) -> Self {
-        self.num_threads = Some(num_threads);
-        self
-    }
-
     /// Whether to search first in a narrow window around the previous root
     /// value on each iteration.
     pub fn with_aspiration_window(mut self, window: Evaluation) -> Self {
         self.aspiration_window = Some(window);
+        self
+    }
+
+    /// Whether to add null-window searches to try to prune branches that are
+    /// probably worse than those already found. Also known as principal
+    /// variation search.
+    pub fn with_null_window_search(mut self, null: bool) -> Self {
+        self.null_window_search = null;
+        self
+    }
+
+    /// Set the total number of threads to use. Otherwise defaults to num_cpus.
+    pub fn with_num_threads(mut self, num_threads: usize) -> Self {
+        self.num_threads = Some(num_threads);
         self
     }
 }
@@ -101,6 +113,41 @@ enum Command<S: Clone> {
     Search(Search<S>),
 }
 
+struct SharedStats {
+    nodes_explored: AtomicU64,
+    generated_moves: AtomicU64,
+    generate_move_calls: AtomicU64,
+}
+
+impl SharedStats {
+    fn new() -> Self {
+        Self {
+            nodes_explored: AtomicU64::new(0),
+            generated_moves: AtomicU64::new(0),
+            generate_move_calls: AtomicU64::new(0),
+        }
+    }
+
+    fn reset(&self) {
+        self.nodes_explored.store(0, Ordering::SeqCst);
+        self.generated_moves.store(0, Ordering::SeqCst);
+        self.generate_move_calls.store(0, Ordering::SeqCst);
+    }
+
+    fn update<E: Evaluator, T>(&self, negamaxer: &mut Negamaxer<E, T>) {
+        self.nodes_explored.fetch_add(negamaxer.nodes_explored, Ordering::SeqCst);
+        negamaxer.nodes_explored = 0;
+        self.generated_moves.fetch_add(negamaxer.total_generated_moves, Ordering::SeqCst);
+        negamaxer.total_generated_moves = 0;
+        self.generate_move_calls.fetch_add(negamaxer.total_generate_move_calls, Ordering::SeqCst);
+        negamaxer.total_generate_move_calls = 0;
+    }
+
+    fn reset_nodes_explored(&self) -> u64 {
+        self.nodes_explored.swap(0, Ordering::SeqCst)
+    }
+}
+
 struct Helper<E: Evaluator>
 where
     <E::G as Game>::S: Clone,
@@ -109,6 +156,7 @@ where
     negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
     command: Arc<Mutex<Command<<E::G as Game>::S>>>,
     waiter: Arc<Condvar>,
+    stats: Arc<SharedStats>,
 }
 
 impl<E: Evaluator> Helper<E>
@@ -117,17 +165,31 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn process(&mut self) {
+        let mut prev_hash: u64 = 0;
+        let mut prev_depth: u8 = 200;
         loop {
             let mut search = {
                 let command = self.command.lock().unwrap();
-                let command =
-                    self.waiter.wait_while(command, |c| matches!(*c, Command::Wait)).unwrap();
+                // Stay waiting during Wait command or if we already completed Search command.
+                let command = self
+                    .waiter
+                    .wait_while(command, |c| match *c {
+                        Command::Exit => false,
+                        Command::Wait => true,
+                        Command::Search(ref search) => {
+                            search.state.zobrist_hash() == prev_hash && search.depth == prev_depth
+                        }
+                    })
+                    .unwrap();
+                // Do command.
                 match *command {
                     Command::Exit => return,
                     Command::Wait => continue,
                     Command::Search(ref search) => search.clone(),
                 }
             };
+            prev_hash = search.state.zobrist_hash();
+            prev_depth = search.depth;
 
             self.negamaxer.set_timeout(search.timeout.clone());
             let mut alpha = WORST_EVAL;
@@ -161,6 +223,7 @@ where
             }
 
             // Computation finished or interrupted, go back to sleep.
+            self.stats.update(&mut self.negamaxer);
         }
     }
 }
@@ -185,6 +248,7 @@ where
     actual_depth: u8,
     // Nodes explored at each depth.
     nodes_explored: Vec<u64>,
+    shared_stats: Arc<SharedStats>,
     pv: Vec<<E::G as Game>::M>,
     wall_time: Duration,
 }
@@ -213,23 +277,26 @@ where
         let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
         let command = Arc::new(Mutex::new(Command::Wait));
         let signal = Arc::new(Condvar::new());
+        let stats = Arc::new(SharedStats::new());
         // start n-1 helper threads
         for _ in 1..opts.num_threads.unwrap_or_else(num_cpus::get) {
             let table2 = table.clone();
             let eval2 = eval.clone();
             let command2 = command.clone();
             let waiter = signal.clone();
+            let stats2 = stats.clone();
             spawn(move || {
                 let mut helper = Helper {
                     negamaxer: Negamaxer::new(
                         table2,
                         eval2,
                         opts.max_quiescence_depth,
-                        true,
+                        opts.null_window_search,
                         u8::MAX,
                     ),
                     command: command2,
                     waiter,
+                    stats: stats2,
                 };
                 helper.process();
             });
@@ -247,6 +314,7 @@ where
             opts,
             actual_depth: 0,
             nodes_explored: Vec::new(),
+            shared_stats: stats,
             pv: Vec::new(),
             wall_time: Duration::default(),
         }
@@ -267,10 +335,19 @@ where
         self.max_depth = 100;
     }
 
-    // TODO: gather stats from helper threads.
-    // Return a human-readable summary of the last move generation.
-    //pub fn stats(&self) -> String {
-    //}
+    /// Return a human-readable summary of the last move generation.
+    pub fn stats(&self) -> String {
+        let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
+        let mean_branching_factor = self.shared_stats.generated_moves.load(Ordering::SeqCst) as f64
+            / self.shared_stats.generate_move_calls.load(Ordering::SeqCst) as f64;
+        let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
+            .powf((self.actual_depth as f64 + 1.0).recip());
+        let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
+            / self.wall_time.as_secs_f64();
+        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
+		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
+		self.negamaxer.nodes_explored, throughput as usize)
+    }
 
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
@@ -292,6 +369,7 @@ where
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         self.table.concurrent_advance_generation();
         // Reset stats.
+        self.shared_stats.reset();
         self.nodes_explored.clear();
         self.actual_depth = 0;
         let start_time = Instant::now();
@@ -351,6 +429,8 @@ where
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
             self.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
+            self.shared_stats.update(&mut self.negamaxer);
+            self.nodes_explored.push(self.shared_stats.reset_nodes_explored());
         }
         self.wall_time = start_time.elapsed();
         best_move

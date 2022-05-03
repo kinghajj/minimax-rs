@@ -207,9 +207,9 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     min_reorder_moves_depth: u8,
 
     // Stats
-    nodes_explored: u64,
-    total_generate_move_calls: u64,
-    total_generated_moves: u64,
+    pub(crate) nodes_explored: u64,
+    pub(crate) total_generate_move_calls: u64,
+    pub(crate) total_generated_moves: u64,
 }
 
 impl<E: Evaluator, T: Table<<E::G as Game>::M>> Negamaxer<E, T>
@@ -398,7 +398,6 @@ pub struct IterativeSearch<E: Evaluator> {
     actual_depth: u8,
     // Nodes explored at each depth.
     nodes_explored: Vec<u64>,
-    table_hits: usize,
     pv: Vec<<E::G as Game>::M>,
     wall_time: Duration,
 }
@@ -425,7 +424,6 @@ where
             opts,
             actual_depth: 0,
             nodes_explored: Vec::new(),
-            table_hits: 0,
             pv: Vec::new(),
             wall_time: Duration::default(),
         }
@@ -455,9 +453,9 @@ where
             .powf((self.actual_depth as f64 + 1.0).recip());
         let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
             / self.wall_time.as_secs_f64();
-        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} transposition table hits.\n{} nodes/sec",
+        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
 		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
-		self.negamaxer.nodes_explored, self.table_hits, throughput as usize)
+		self.negamaxer.nodes_explored, throughput as usize)
     }
 
     #[doc(hidden)]
@@ -483,7 +481,6 @@ where
         self.nodes_explored.clear();
         self.negamaxer.reset_stats();
         self.actual_depth = 0;
-        self.table_hits = 0;
         let start_time = Instant::now();
         // Start timer if configured.
         self.negamaxer.set_timeout(if self.max_time == Duration::new(0, 0) {
