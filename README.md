@@ -12,10 +12,12 @@ This library provides interfaces that describe:
 2. methods of evaluating particular game states for a player; and
 3. strategies for choosing moves for a player.
 
-The eventual goal is to have multiple proper strategies, so that any
-combination of evaluators and strategies can be tested against each
-other. Currently, single-threaded algorithms using alpha-beta pruning,
-iterative deeping, and transposition tables are provided.
+This crate implements multiple different strategies, so that any combination of
+custom evaluators and strategies can be tested against each other. These include
+single- and multi-threaded algorithms using alpha-beta pruning, iterative
+deepening, and transposition tables. There is also a basic implementation of
+multi-threaded Monte Carlo Tree Search, which does not require writing an
+evaluator.
 
 ## Example
 
