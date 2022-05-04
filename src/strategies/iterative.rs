@@ -109,7 +109,7 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
     }
 }
 
-/// Options to use for the iterative search engine.
+/// Options to use for the iterative search engines.
 #[derive(Clone, Copy)]
 pub struct IterativeOptions {
     pub(super) table_byte_size: usize,
@@ -119,6 +119,7 @@ pub struct IterativeOptions {
     pub(super) step_increment: u8,
     pub(super) max_quiescence_depth: u8,
     pub(super) min_reorder_moves_depth: u8,
+    pub(super) verbose: bool,
 }
 
 impl IterativeOptions {
@@ -131,6 +132,7 @@ impl IterativeOptions {
             step_increment: 1,
             max_quiescence_depth: 0,
             min_reorder_moves_depth: u8::MAX,
+            verbose: false,
         }
     }
 }
@@ -191,6 +193,12 @@ impl IterativeOptions {
     /// the search tree.
     pub fn with_min_reorder_moves_depth(mut self, depth: u8) -> Self {
         self.min_reorder_moves_depth = depth;
+        self
+    }
+
+    /// Enable verbose print statements of the ongoing performance of the search.
+    pub fn verbose(mut self) -> Self {
+        self.verbose = true;
         self
     }
 }

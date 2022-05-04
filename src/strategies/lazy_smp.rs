@@ -336,10 +336,15 @@ where
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
         let mut best_move = None;
+        let mut interval_start = start_time;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
             // First, a serial aspiration search to at least establish some bounds.
+            if self.opts.verbose {
+                interval_start = Instant::now();
+                println!("LazySmp search depth {} around {}", depth + 1, self.prev_value);
+            }
             if self
                 .negamaxer
                 .aspiration_search(
@@ -352,6 +357,20 @@ where
             {
                 // Timeout.
                 break;
+            }
+            if self.opts.verbose {
+                let mut alpha = WORST_EVAL;
+                let mut beta = BEST_EVAL;
+                self.negamaxer.table.check(root_hash, depth + 1, &mut None, &mut alpha, &mut beta);
+                let end = Instant::now();
+                let interval = end - interval_start;
+                println!(
+                    "LazySmp aspiration search took {}ms; within bounds {}:{}",
+                    interval.as_millis(),
+                    alpha,
+                    beta
+                );
+                interval_start = end;
             }
 
             let iteration_done = Arc::new(AtomicBool::new(false));
@@ -373,6 +392,15 @@ where
             if value.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
+            }
+
+            if self.opts.verbose {
+                let interval = Instant::now() - interval_start;
+                println!(
+                    "LazySmp       full search took {}ms; returned {:?}",
+                    interval.as_millis(),
+                    value.unwrap()
+                );
             }
 
             let entry = self.table.lookup(root_hash).unwrap();
