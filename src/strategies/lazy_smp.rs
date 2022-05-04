@@ -25,14 +25,14 @@ use std::time::{Duration, Instant};
 pub struct LazySmpOptions {
     // Default is one per core.
     num_threads: Option<usize>,
+    differing_depths: bool,
     // TODO: optional bonus thread local TT?
     // TODO: min_TT_depth?
-    // TODO: alternating depths in alternating threads
 }
 
 impl LazySmpOptions {
     pub fn new() -> Self {
-        LazySmpOptions { num_threads: None }
+        LazySmpOptions { num_threads: None, differing_depths: false }
     }
 }
 
@@ -46,6 +46,12 @@ impl LazySmpOptions {
     /// Set the total number of threads to use. Otherwise defaults to num_cpus.
     pub fn with_num_threads(mut self, num_threads: usize) -> Self {
         self.num_threads = Some(num_threads);
+        self
+    }
+
+    /// Enables the helper threads to explore the tree at multiple depths simultaneously.
+    pub fn with_differing_depths(mut self) -> Self {
+        self.differing_depths = true;
         self
     }
 }
@@ -108,6 +114,7 @@ where
     command: Arc<Mutex<Command<<E::G as Game>::S>>>,
     waiter: Arc<Condvar>,
     stats: Arc<SharedStats>,
+    extra_depth: u8,
 }
 
 impl<E: Evaluator> Helper<E>
@@ -142,12 +149,13 @@ where
             prev_hash = search.state.zobrist_hash();
             prev_depth = search.depth;
 
+            let depth = search.depth + self.extra_depth;
             self.negamaxer.set_timeout(search.timeout.clone());
             let mut alpha = WORST_EVAL;
             let mut beta = BEST_EVAL;
             self.negamaxer.table.check(
                 search.state.zobrist_hash(),
-                search.depth,
+                depth,
                 &mut None,
                 &mut alpha,
                 &mut beta,
@@ -160,9 +168,7 @@ where
             // Negamax search the rest.
             for m in moves {
                 m.apply(&mut search.state);
-                if let Some(value) =
-                    self.negamaxer.negamax(&mut search.state, search.depth, alpha, beta)
-                {
+                if let Some(value) = self.negamaxer.negamax(&mut search.state, depth, alpha, beta) {
                     alpha = max(alpha, -value);
                 } else {
                     break;
@@ -230,19 +236,21 @@ where
         let signal = Arc::new(Condvar::new());
         let stats = Arc::new(SharedStats::new());
         // start n-1 helper threads
-        for _ in 1..smp_opts.num_threads.unwrap_or_else(num_cpus::get) {
+        for iter in 1..smp_opts.num_threads.unwrap_or_else(num_cpus::get) {
             let table2 = table.clone();
             let eval2 = eval.clone();
             let opts2 = opts.clone();
             let command2 = command.clone();
             let waiter = signal.clone();
             let stats2 = stats.clone();
+            let extra_depth = if smp_opts.differing_depths { iter as u8 & 1 } else { 0 };
             spawn(move || {
                 let mut helper = Helper {
                     negamaxer: Negamaxer::new(table2, eval2, opts2),
                     command: command2,
                     waiter,
                     stats: stats2,
+                    extra_depth,
                 };
                 helper.process();
             });
