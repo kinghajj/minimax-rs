@@ -111,8 +111,7 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
-    command: Arc<Mutex<Command<<E::G as Game>::S>>>,
-    waiter: Arc<Condvar>,
+    signal: Arc<CommandSignal<<E::G as Game>::S>>,
     stats: Arc<SharedStats>,
     extra_depth: u8,
 }
@@ -127,10 +126,11 @@ where
         let mut prev_depth: u8 = 200;
         loop {
             let mut search = {
-                let command = self.command.lock().unwrap();
+                let command = self.signal.command.lock().unwrap();
                 // Stay waiting during Wait command or if we already completed Search command.
                 let command = self
-                    .waiter
+                    .signal
+                    .signal
                     .wait_while(command, |c| match *c {
                         Command::Exit => false,
                         Command::Wait => true,
@@ -185,6 +185,50 @@ where
     }
 }
 
+struct CommandSignal<S: Clone> {
+    command: Mutex<Command<S>>,
+    signal: Condvar,
+}
+
+impl<S> CommandSignal<S>
+where
+    S: Clone,
+{
+    fn new() -> Self {
+        Self { command: Mutex::new(Command::Wait), signal: Condvar::new() }
+    }
+
+    fn update(&self, new_command: Command<S>) {
+        let mut command = self.command.lock().unwrap();
+        if let Command::Search(ref search) = *command {
+            search.timeout.store(true, Ordering::SeqCst);
+        }
+        *command = new_command;
+        self.signal.notify_all();
+    }
+
+    fn wait(&self) {
+        self.update(Command::Wait);
+    }
+
+    fn new_search(&self, state: &S, depth: u8) {
+        self.update(Command::Search(Search {
+            state: state.clone(),
+            depth,
+            timeout: Arc::new(AtomicBool::new(false)),
+        }));
+    }
+}
+
+impl<S> Drop for CommandSignal<S>
+where
+    S: Clone,
+{
+    fn drop(&mut self) {
+        self.update(Command::Exit);
+    }
+}
+
 pub struct LazySmp<E: Evaluator>
 where
     <E::G as Game>::S: Clone + Zobrist,
@@ -194,8 +238,7 @@ where
     max_time: Duration,
     table: Arc<LockfreeTable<<E::G as Game>::M>>,
     negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
-    command: Arc<Mutex<Command<<E::G as Game>::S>>>,
-    signal: Arc<Condvar>,
+    signal: Arc<CommandSignal<<E::G as Game>::S>>,
 
     opts: IterativeOptions,
 
@@ -210,17 +253,6 @@ where
     wall_time: Duration,
 }
 
-impl<E: Evaluator> Drop for LazySmp<E>
-where
-    <E::G as Game>::S: Clone + Zobrist,
-    <E::G as Game>::M: Copy + Eq,
-{
-    fn drop(&mut self) {
-        *self.command.lock().unwrap() = Command::Exit;
-        self.signal.notify_all();
-    }
-}
-
 impl<E: Evaluator> LazySmp<E>
 where
     <E::G as Game>::S: Clone + Zobrist + Send,
@@ -232,23 +264,20 @@ where
         E: 'static,
     {
         let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
-        let command = Arc::new(Mutex::new(Command::Wait));
-        let signal = Arc::new(Condvar::new());
         let stats = Arc::new(SharedStats::new());
+        let signal = Arc::new(CommandSignal::new());
         // start n-1 helper threads
         for iter in 1..smp_opts.num_threads.unwrap_or_else(num_cpus::get) {
             let table2 = table.clone();
             let eval2 = eval.clone();
             let opts2 = opts.clone();
-            let command2 = command.clone();
-            let waiter = signal.clone();
+            let signal2 = signal.clone();
             let stats2 = stats.clone();
             let extra_depth = if smp_opts.differing_depths { iter as u8 & 1 } else { 0 };
             spawn(move || {
                 let mut helper = Helper {
                     negamaxer: Negamaxer::new(table2, eval2, opts2),
-                    command: command2,
-                    waiter,
+                    signal: signal2,
                     stats: stats2,
                     extra_depth,
                 };
@@ -261,7 +290,6 @@ where
             max_time: Duration::from_secs(5),
             table,
             negamaxer,
-            command,
             signal,
             prev_value: 0,
             opts,
@@ -373,22 +401,10 @@ where
                 interval_start = end;
             }
 
-            let iteration_done = Arc::new(AtomicBool::new(false));
-            {
-                let mut command = self.command.lock().unwrap();
-                *command = Command::Search(Search {
-                    state: s.clone(),
-                    depth,
-                    timeout: iteration_done.clone(),
-                });
-                self.signal.notify_all();
-            }
+            self.signal.new_search(&s, depth);
 
             let value = self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL);
-            {
-                *self.command.lock().unwrap() = Command::Wait;
-            }
-            iteration_done.store(true, Ordering::Relaxed);
+            self.signal.wait();
             if value.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
