@@ -60,6 +60,8 @@ impl LazySmpOptions {
 struct Search<S: Clone> {
     state: S,
     depth: u8,
+    alpha: Evaluation,
+    beta: Evaluation,
     timeout: Arc<AtomicBool>,
 }
 
@@ -124,6 +126,8 @@ where
     fn process(&mut self) {
         let mut prev_hash: u64 = 0;
         let mut prev_depth: u8 = 200;
+        let mut prev_alpha = 0;
+        let mut prev_beta = 0;
         loop {
             let mut search = {
                 let command = self.signal.command.lock().unwrap();
@@ -135,7 +139,10 @@ where
                         Command::Exit => false,
                         Command::Wait => true,
                         Command::Search(ref search) => {
-                            search.state.zobrist_hash() == prev_hash && search.depth == prev_depth
+                            search.state.zobrist_hash() == prev_hash
+                                && search.depth == prev_depth
+                                && prev_alpha == search.alpha
+                                && prev_beta == search.beta
                         }
                     })
                     .unwrap();
@@ -148,11 +155,13 @@ where
             };
             prev_hash = search.state.zobrist_hash();
             prev_depth = search.depth;
+            prev_alpha = search.alpha;
+            prev_beta = search.beta;
 
             let depth = search.depth + self.extra_depth;
             self.negamaxer.set_timeout(search.timeout.clone());
-            let mut alpha = WORST_EVAL;
-            let mut beta = BEST_EVAL;
+            let mut alpha = search.alpha;
+            let mut beta = search.beta;
             self.negamaxer.table.check(
                 search.state.zobrist_hash(),
                 depth,
@@ -211,10 +220,12 @@ where
         self.update(Command::Wait);
     }
 
-    fn new_search(&self, state: &S, depth: u8) {
+    fn new_search(&self, state: &S, depth: u8, alpha: Evaluation, beta: Evaluation) {
         self.update(Command::Search(Search {
             state: state.clone(),
             depth,
+            alpha,
+            beta,
             timeout: Arc::new(AtomicBool::new(false)),
         }));
     }
@@ -368,43 +379,52 @@ where
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
-            // First, a serial aspiration search to at least establish some bounds.
             if self.opts.verbose {
                 interval_start = Instant::now();
-                println!("LazySmp search depth {} around {}", depth + 1, self.prev_value);
+                println!("LazySmp search depth {}", depth + 1);
             }
-            if self
-                .negamaxer
-                .aspiration_search(
-                    &mut s_clone,
-                    depth + 1,
-                    self.prev_value,
-                    self.opts.aspiration_window.unwrap_or(2),
-                )
-                .is_none()
-            {
-                // Timeout.
-                break;
-            }
-            if self.opts.verbose {
-                let mut alpha = WORST_EVAL;
-                let mut beta = BEST_EVAL;
-                self.negamaxer.table.check(root_hash, depth + 1, &mut None, &mut alpha, &mut beta);
-                let end = Instant::now();
-                let interval = end - interval_start;
-                println!(
-                    "LazySmp aspiration search took {}ms; within bounds {}:{}",
-                    interval.as_millis(),
-                    alpha,
-                    beta
-                );
-                interval_start = end;
+            if let Some(window) = self.opts.aspiration_window {
+                // First, parallel aspiration search to at least establish some bounds.
+                let mut alpha = self.prev_value.saturating_sub(window);
+                if alpha < WORST_EVAL {
+                    alpha = WORST_EVAL;
+                }
+                let mut beta = self.prev_value.saturating_add(window);
+                self.signal.new_search(&s, depth, alpha, beta);
+
+                if self
+                    .negamaxer
+                    .aspiration_search(&mut s_clone, depth + 1, self.prev_value, window)
+                    .is_none()
+                {
+                    // Timeout.
+                    break;
+                }
+                if self.opts.verbose {
+                    alpha = WORST_EVAL;
+                    beta = BEST_EVAL;
+                    self.negamaxer.table.check(
+                        root_hash,
+                        depth + 1,
+                        &mut None,
+                        &mut alpha,
+                        &mut beta,
+                    );
+                    let end = Instant::now();
+                    let interval = end - interval_start;
+                    println!(
+                        "LazySmp aspiration search took {}ms; within bounds {}:{}",
+                        interval.as_millis(),
+                        alpha,
+                        beta
+                    );
+                    interval_start = end;
+                }
             }
 
-            self.signal.new_search(&s, depth);
+            self.signal.new_search(&s, depth, WORST_EVAL, BEST_EVAL);
 
             let value = self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL);
-            self.signal.wait();
             if value.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
@@ -429,6 +449,7 @@ where
             self.shared_stats.update(&mut self.negamaxer);
             self.nodes_explored.push(self.shared_stats.reset_nodes_explored());
         }
+        self.signal.wait();
         self.wall_time = start_time.elapsed();
         best_move
     }
