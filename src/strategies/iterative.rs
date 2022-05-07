@@ -116,6 +116,7 @@ pub struct IterativeOptions {
     pub(super) strategy: Replacement,
     pub(super) null_window_search: bool,
     pub(super) aspiration_window: Option<Evaluation>,
+    pub(super) mtdf: bool,
     pub(super) step_increment: u8,
     pub(super) max_quiescence_depth: u8,
     pub(super) min_reorder_moves_depth: u8,
@@ -129,6 +130,7 @@ impl IterativeOptions {
             strategy: Replacement::TwoTier,
             null_window_search: true,
             aspiration_window: None,
+            mtdf: false,
             step_increment: 1,
             max_quiescence_depth: 0,
             min_reorder_moves_depth: u8::MAX,
@@ -169,6 +171,15 @@ impl IterativeOptions {
     /// value on each iteration.
     pub fn with_aspiration_window(mut self, window: Evaluation) -> Self {
         self.aspiration_window = Some(window);
+        self
+    }
+
+    /// Whether to search for the correct value in each iteration using only
+    /// null-window "Tests", with the
+    /// [MTD(f)](https://en.wikipedia.org/wiki/MTD%28f%29) algorithm.
+    /// Can be more efficient if the evaluation function is coarse grained.
+    pub fn with_mtdf(mut self) -> Self {
+        self.mtdf = true;
         self
     }
 
@@ -463,6 +474,29 @@ where
     pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
         &self.pv[..]
     }
+
+    fn mtdf(
+        &mut self, s: &mut <E::G as Game>::S, depth: u8, mut guess: Evaluation,
+    ) -> Option<Evaluation> {
+        let mut lowerbound = WORST_EVAL;
+        let mut upperbound = BEST_EVAL;
+        while lowerbound < upperbound {
+            let beta = max(lowerbound + 1, guess);
+            if self.opts.verbose {
+                println!(
+                    "mtdf depth={} guess={} bounds={}:{}",
+                    depth, beta, lowerbound, upperbound
+                );
+            }
+            guess = self.negamaxer.negamax(s, depth, beta - 1, beta)?;
+            if guess < beta {
+                upperbound = guess;
+            } else {
+                lowerbound = guess;
+            }
+        }
+        Some(guess)
+    }
 }
 
 impl<E: Evaluator> Strategy<E::G> for IterativeSearch<E>
@@ -490,11 +524,21 @@ where
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
-            if let Some(window) = self.opts.aspiration_window {
-                // Results of the search are stored in the table.
-                self.negamaxer.aspiration_search(&mut s_clone, depth + 1, self.prev_value, window);
-            }
-            if self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
+            let search = if self.opts.mtdf {
+                self.mtdf(&mut s_clone, depth + 1, self.prev_value)
+            } else {
+                if let Some(window) = self.opts.aspiration_window {
+                    // Results of the search are stored in the table.
+                    self.negamaxer.aspiration_search(
+                        &mut s_clone,
+                        depth + 1,
+                        self.prev_value,
+                        window,
+                    );
+                }
+                self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL)
+            };
+            if search.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }

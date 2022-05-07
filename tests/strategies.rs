@@ -151,6 +151,7 @@ fn compare_plain_negamax() {
                 IterativeOptions::new()
                     .with_replacement_strategy(Replacement::TwoTier)
                     .with_aspiration_window(5),
+                IterativeOptions::new().with_replacement_strategy(Replacement::TwoTier).with_mtdf(),
             ]
             .drain(..)
             .enumerate()
@@ -225,6 +226,13 @@ fn compare_deep_negamax() {
             iterative.choose_move(&b).unwrap();
             let iterative_value = iterative.root_value();
             assert_eq!(value, iterative_value, "search depth={}\n{}", max_depth, b);
+
+            let mut mtdf =
+                IterativeSearch::new(RandomEvaluator::default(), opt.clone().with_mtdf());
+            mtdf.set_max_depth(max_depth);
+            mtdf.choose_move(&b).unwrap();
+            let mtdf_value = mtdf.root_value();
+            assert_eq!(value, mtdf_value, "search depth={}\n{}", max_depth, b);
 
             let mut parallel =
                 ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
