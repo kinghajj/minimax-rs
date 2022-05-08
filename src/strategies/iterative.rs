@@ -521,21 +521,41 @@ where
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
         let mut best_move = None;
+        let mut interval_start = start_time;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
+            if self.opts.verbose {
+                interval_start = Instant::now();
+                println!("Iterative search depth {}", depth + 1);
+            }
             let search = if self.opts.mtdf {
                 self.mtdf(&mut s_clone, depth + 1, self.prev_value)
             } else {
                 if let Some(window) = self.opts.aspiration_window {
                     // Results of the search are stored in the table.
-                    self.negamaxer.aspiration_search(
-                        &mut s_clone,
-                        depth + 1,
-                        self.prev_value,
-                        window,
-                    );
+                    if self
+                        .negamaxer
+                        .aspiration_search(&mut s_clone, depth + 1, self.prev_value, window)
+                        .is_none()
+                    {
+                        // Timeout.
+                        break;
+                    }
                 }
+                if self.opts.verbose {
+                    if let Some(entry) = self.negamaxer.table.lookup(root_hash) {
+                        let end = Instant::now();
+                        let interval = end - interval_start;
+                        println!(
+                            "Iterative aspiration search took {}ms; value {}",
+                            interval.as_millis(),
+                            entry.bounds(),
+                        );
+                        interval_start = end;
+                    }
+                }
+
                 self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL)
             };
             if search.is_none() {
@@ -545,6 +565,15 @@ where
             let entry = self.negamaxer.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
 
+            if self.opts.verbose {
+                let interval = Instant::now() - interval_start;
+                println!(
+                    "Iterative       full search took {}ms; returned {:?}",
+                    interval.as_millis(),
+                    entry.value
+                );
+            }
+
             self.actual_depth = max(self.actual_depth, depth);
             self.nodes_explored.push(self.negamaxer.nodes_explored);
             self.negamaxer.nodes_explored = 0;
@@ -553,6 +582,9 @@ where
             self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
         }
         self.wall_time = start_time.elapsed();
+        if self.opts.verbose {
+            println!("{}", self.stats());
+        }
         best_move
     }
 }

@@ -327,6 +327,23 @@ where
         self.max_depth = 100;
     }
 
+    #[doc(hidden)]
+    pub fn root_value(&self) -> Evaluation {
+        unclamp_value(self.prev_value)
+    }
+
+    /// Return what the engine considered to be the best sequence of moves
+    /// from both sides.
+    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
+        &self.pv[..]
+    }
+}
+
+impl<E: Evaluator> LazySmp<E>
+where
+    <E::G as Game>::S: Clone + Zobrist,
+    <E::G as Game>::M: Copy + Eq,
+{
     /// Return a human-readable summary of the last move generation.
     pub fn stats(&self) -> String {
         let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
@@ -339,17 +356,6 @@ where
         format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
 		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
 		self.negamaxer.nodes_explored, throughput as usize)
-    }
-
-    #[doc(hidden)]
-    pub fn root_value(&self) -> Evaluation {
-        unclamp_value(self.prev_value)
-    }
-
-    /// Return what the engine considered to be the best sequence of moves
-    /// from both sides.
-    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
-        &self.pv[..]
     }
 }
 
@@ -389,7 +395,7 @@ where
                 if alpha < WORST_EVAL {
                     alpha = WORST_EVAL;
                 }
-                let mut beta = self.prev_value.saturating_add(window);
+                let beta = self.prev_value.saturating_add(window);
                 self.signal.new_search(&s, depth, alpha, beta);
 
                 if self
@@ -401,24 +407,16 @@ where
                     break;
                 }
                 if self.opts.verbose {
-                    alpha = WORST_EVAL;
-                    beta = BEST_EVAL;
-                    self.negamaxer.table.check(
-                        root_hash,
-                        depth + 1,
-                        &mut None,
-                        &mut alpha,
-                        &mut beta,
-                    );
-                    let end = Instant::now();
-                    let interval = end - interval_start;
-                    println!(
-                        "LazySmp aspiration search took {}ms; within bounds {}:{}",
-                        interval.as_millis(),
-                        alpha,
-                        beta
-                    );
-                    interval_start = end;
+                    if let Some(entry) = self.table.lookup(root_hash) {
+                        let end = Instant::now();
+                        let interval = end - interval_start;
+                        println!(
+                            "LazySmp aspiration search took {}ms; value {}",
+                            interval.as_millis(),
+                            entry.bounds(),
+                        );
+                        interval_start = end;
+                    }
                 }
             }
 
@@ -451,6 +449,9 @@ where
         }
         self.signal.wait();
         self.wall_time = start_time.elapsed();
+        if self.opts.verbose {
+            println!("{}", self.stats());
+        }
         best_move
     }
 }

@@ -1,3 +1,4 @@
+use super::util::unclamp_value;
 use crate::interface::*;
 use std::cmp::{max, min};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
@@ -30,6 +31,22 @@ fn test_entry_size() {
 
 pub(super) fn high_bits(hash: u64) -> u32 {
     (hash >> 32) as u32
+}
+
+impl<M> Entry<M> {
+    pub(super) fn bounds(&self) -> String {
+        match self.flag {
+            EntryFlag::Exact => "=",
+            EntryFlag::Upperbound => "≤",
+            EntryFlag::Lowerbound => "≥",
+        }
+        .to_string()
+            + &match unclamp_value(self.value) {
+                WORST_EVAL => "-∞".to_owned(),
+                BEST_EVAL => "∞".to_owned(),
+                value => value.to_string(),
+            }
+    }
 }
 
 // A trait for a transposition table. The methods are mutual exclusion, but
