@@ -475,6 +475,18 @@ where
         &self.pv[..]
     }
 
+    // Return a unique id for humans for this move.
+    fn move_id(&self, s: &mut <E::G as Game>::S, m: Option<<E::G as Game>::M>) -> String {
+        if let Some(mov) = m {
+            mov.apply(s);
+            let id = format!("{:06x}", s.zobrist_hash() & 0xffffff);
+            mov.undo(s);
+            id
+        } else {
+            "none".to_string()
+        }
+    }
+
     fn mtdf(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut guess: Evaluation,
     ) -> Option<Evaluation> {
@@ -483,7 +495,7 @@ where
         while lowerbound < upperbound {
             let beta = max(lowerbound + 1, guess);
             if self.opts.verbose {
-                println!(
+                eprintln!(
                     "mtdf depth={} guess={} bounds={}:{}",
                     depth, beta, lowerbound, upperbound
                 );
@@ -522,12 +534,13 @@ where
         let mut s_clone = s.clone();
         let mut best_move = None;
         let mut interval_start = start_time;
+        let mut maxxed = false;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         while depth <= self.max_depth as u8 {
-            if self.opts.verbose {
+            if self.opts.verbose && !maxxed {
                 interval_start = Instant::now();
-                println!("Iterative search depth {}", depth + 1);
+                eprintln!("Iterative search depth {}", depth + 1);
             }
             let search = if self.opts.mtdf {
                 self.mtdf(&mut s_clone, depth + 1, self.prev_value)
@@ -543,14 +556,15 @@ where
                         break;
                     }
                 }
-                if self.opts.verbose {
+                if self.opts.verbose && !maxxed {
                     if let Some(entry) = self.negamaxer.table.lookup(root_hash) {
                         let end = Instant::now();
                         let interval = end - interval_start;
-                        println!(
-                            "Iterative aspiration search took {}ms; value {}",
+                        eprintln!(
+                            "Iterative aspiration search took {}ms; value{} bestmove={}",
                             interval.as_millis(),
                             entry.bounds(),
+                            self.move_id(&mut s_clone, entry.best_move)
                         );
                         interval_start = end;
                     }
@@ -565,13 +579,17 @@ where
             let entry = self.negamaxer.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
 
-            if self.opts.verbose {
+            if self.opts.verbose && !maxxed {
                 let interval = Instant::now() - interval_start;
-                println!(
-                    "Iterative       full search took {}ms; returned {:?}",
+                eprintln!(
+                    "Iterative       full search took {}ms; returned {:?} bestmove={}",
                     interval.as_millis(),
-                    entry.value
+                    entry.value,
+                    self.move_id(&mut s_clone, best_move)
                 );
+                if unclamp_value(entry.value).abs() == BEST_EVAL {
+                    maxxed = true;
+                }
             }
 
             self.actual_depth = max(self.actual_depth, depth);
@@ -583,7 +601,7 @@ where
         }
         self.wall_time = start_time.elapsed();
         if self.opts.verbose {
-            println!("{}", self.stats());
+            eprintln!("{}", self.stats());
         }
         best_move
     }
