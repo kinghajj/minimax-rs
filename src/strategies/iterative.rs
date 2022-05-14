@@ -451,7 +451,7 @@ where
     }
 
     /// Return a human-readable summary of the last move generation.
-    pub fn stats(&self) -> String {
+    pub fn stats(&self, s: &mut <E::G as Game>::S) -> String {
         let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
         let mean_branching_factor = self.negamaxer.total_generated_moves as f64
             / self.negamaxer.total_generate_move_calls as f64;
@@ -459,7 +459,8 @@ where
             .powf((self.actual_depth as f64 + 1.0).recip());
         let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
             / self.wall_time.as_secs_f64();
-        format!("Explored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
+        format!("Principal variation: {}\nExplored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
+                pv_string::<E::G>(&self.pv[..], s),
 		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
 		self.negamaxer.nodes_explored, throughput as usize)
     }
@@ -473,18 +474,6 @@ where
     /// from both sides.
     pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
         &self.pv[..]
-    }
-
-    // Return a unique id for humans for this move.
-    fn move_id(&self, s: &mut <E::G as Game>::S, m: Option<<E::G as Game>::M>) -> String {
-        if let Some(mov) = m {
-            mov.apply(s);
-            let id = format!("{:06x}", s.zobrist_hash() & 0xffffff);
-            mov.undo(s);
-            id
-        } else {
-            "none".to_string()
-        }
     }
 
     fn mtdf(
@@ -564,7 +553,7 @@ where
                             "Iterative aspiration search took {}ms; value{} bestmove={}",
                             interval.as_millis(),
                             entry.bounds(),
-                            self.move_id(&mut s_clone, entry.best_move)
+                            move_id::<E::G>(&mut s_clone, entry.best_move)
                         );
                         interval_start = end;
                     }
@@ -585,7 +574,7 @@ where
                     "Iterative       full search took {}ms; returned {:?} bestmove={}",
                     interval.as_millis(),
                     entry.value,
-                    self.move_id(&mut s_clone, best_move)
+                    move_id::<E::G>(&mut s_clone, best_move)
                 );
                 if unclamp_value(entry.value).abs() == BEST_EVAL {
                     maxxed = true;
@@ -601,7 +590,8 @@ where
         }
         self.wall_time = start_time.elapsed();
         if self.opts.verbose {
-            eprintln!("{}", self.stats());
+            let mut s_clone = s.clone();
+            eprintln!("{}", self.stats(&mut s_clone));
         }
         best_move
     }

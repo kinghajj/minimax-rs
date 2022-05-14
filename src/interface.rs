@@ -57,6 +57,10 @@ pub trait Move {
     fn apply(&self, state: &mut <Self::G as Game>::S);
     /// Revert the state of `S` so that the move is undone.
     fn undo(&self, state: &mut <Self::G as Game>::S);
+    /// Return a human-readable notation for this move in this game state.
+    fn notation(&self, _state: &<Self::G as Game>::S) -> Option<String> {
+        None
+    }
 }
 
 /// The result of playing a game until it finishes.

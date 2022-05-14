@@ -41,6 +41,44 @@ pub(super) fn timeout_signal(dur: Duration) -> Arc<AtomicBool> {
     signal
 }
 
+// Return a unique id for humans for this move.
+pub(super) fn move_id<G: Game>(s: &mut <G as Game>::S, m: Option<<G as Game>::M>) -> String
+where
+    <G as Game>::S: Zobrist,
+{
+    if let Some(mov) = m {
+        if let Some(notation) = mov.notation(s) {
+            notation
+        } else {
+            mov.apply(s);
+            let id = format!("{:06x}", s.zobrist_hash() & 0xffffff);
+            mov.undo(s);
+            id
+        }
+    } else {
+        "none".to_string()
+    }
+}
+
+pub(super) fn pv_string<G: Game>(path: &[<G as Game>::M], s: &mut <G as Game>::S) -> String
+where
+    <G as Game>::S: Zobrist,
+    <G as Game>::M: Copy,
+{
+    let mut out = String::new();
+    for (i, m) in (0..).zip(path.iter()) {
+        if i > 0 {
+            out.push_str("; ");
+        }
+        out.push_str(move_id::<G>(s, Some(*m)).as_str());
+        m.apply(s);
+    }
+    for m in path.iter().rev() {
+        m.undo(s);
+    }
+    out
+}
+
 // This exists to be wrapped in a mutex, because it didn't work when I tried a tuple.
 pub(super) struct ValueMove<M> {
     value: Evaluation,
