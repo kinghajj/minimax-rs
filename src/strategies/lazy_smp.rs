@@ -177,7 +177,9 @@ where
             // Negamax search the rest.
             for m in moves {
                 m.apply(&mut search.state);
-                if let Some(value) = self.negamaxer.negamax(&mut search.state, depth, alpha, beta) {
+                if let Some(value) =
+                    self.negamaxer.negamax(&mut search.state, depth - 1, alpha, beta)
+                {
                     alpha = max(alpha, -value);
                 } else {
                     break;
@@ -297,7 +299,7 @@ where
         }
         let negamaxer = Negamaxer::new(table.clone(), eval, opts.clone());
         LazySmp {
-            max_depth: 100,
+            max_depth: 99,
             max_time: Duration::from_secs(5),
             table,
             negamaxer,
@@ -324,7 +326,7 @@ where
     /// iteration. Unlimited max depth.
     pub fn set_timeout(&mut self, max_time: Duration) {
         self.max_time = max_time;
-        self.max_depth = 100;
+        self.max_depth = 99;
     }
 
     #[doc(hidden)]
@@ -386,10 +388,13 @@ where
         let mut maxxed = false;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        if depth == 0 {
+            depth = self.opts.step_increment;
+        }
         while depth <= self.max_depth as u8 {
             if self.opts.verbose && !maxxed {
                 interval_start = Instant::now();
-                eprintln!("LazySmp search depth {}", depth + 1);
+                eprintln!("LazySmp search depth {}", depth);
             }
             if let Some(window) = self.opts.aspiration_window {
                 // First, parallel aspiration search to at least establish some bounds.
@@ -402,7 +407,7 @@ where
 
                 if self
                     .negamaxer
-                    .aspiration_search(&mut s_clone, depth + 1, self.prev_value, window)
+                    .aspiration_search(&mut s_clone, depth, self.prev_value, window)
                     .is_none()
                 {
                     // Timeout.
@@ -425,7 +430,7 @@ where
 
             self.signal.new_search(&s, depth, WORST_EVAL, BEST_EVAL);
 
-            let value = self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL);
+            let value = self.negamaxer.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL);
             if value.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
@@ -450,7 +455,7 @@ where
             self.actual_depth = max(self.actual_depth, depth);
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
-            self.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
+            self.table.populate_pv(&mut self.pv, &mut s_clone, depth);
             self.shared_stats.update(&mut self.negamaxer);
             self.nodes_explored.push(self.shared_stats.reset_nodes_explored());
         }

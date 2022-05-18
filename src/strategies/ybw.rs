@@ -77,7 +77,7 @@ impl<E: Evaluator> ParallelYbw<E> {
     pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
         let table = LockfreeTable::new(opts.table_byte_size);
         ParallelYbw {
-            max_depth: 100,
+            max_depth: 99,
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             table,
@@ -109,7 +109,7 @@ impl<E: Evaluator> ParallelYbw<E> {
     /// iteration. Unlimited max depth.
     pub fn set_timeout(&mut self, max_time: Duration) {
         self.max_time = max_time;
-        self.max_depth = 100;
+        self.max_depth = 99;
     }
 
     #[doc(hidden)]
@@ -330,8 +330,11 @@ where
         let mut best_move = None;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        if depth == 0 {
+            depth = self.opts.step_increment;
+        }
         while depth <= self.max_depth as u8 {
-            if self.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL).is_none() {
+            if self.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }
@@ -343,7 +346,7 @@ where
             self.prev_value = entry.value;
             self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
-            self.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
+            self.table.populate_pv(&mut self.pv, &mut s_clone, depth);
         }
         self.wall_time = start_time.elapsed();
         best_move

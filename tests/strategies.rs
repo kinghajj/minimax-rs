@@ -65,7 +65,7 @@ where
         let mut s_clone = s.clone();
         for &m in moves.iter() {
             m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone, self.depth);
+            let value = -self.negamax(&mut s_clone, self.depth - 1);
             m.undo(&mut s_clone);
             if value == best_value {
                 self.best_moves.push(m);
@@ -121,7 +121,7 @@ fn generate_random_state(depth: usize) -> connect4::Board {
 #[test]
 fn compare_plain_negamax() {
     for _ in 0..100 {
-        for max_depth in 0..5 {
+        for max_depth in 1..6 {
             let b = generate_random_state(10);
 
             let mut plain_negamax = PlainNegamax::new(RandomEvaluator::default(), max_depth);
@@ -213,8 +213,8 @@ fn compare_plain_negamax() {
 #[test]
 fn compare_deep_negamax() {
     let opt = IterativeOptions::new().with_table_byte_size(64000);
-    for _ in 0..10 {
-        for max_depth in 0..9 {
+    for iter in 0..10 {
+        for max_depth in 1..10 {
             let b = generate_random_state(10);
 
             let mut negamax = Negamax::new(RandomEvaluator, max_depth);
@@ -246,7 +246,7 @@ fn compare_deep_negamax() {
             lazysmp.set_max_depth(max_depth);
             lazysmp.choose_move(&b).unwrap();
             let lazysmp_value = lazysmp.root_value();
-            assert_eq!(value, lazysmp_value, "search depth={}\n{}", max_depth, b);
+            assert_eq!(value, lazysmp_value, "search depth={} iter={}\n{}", max_depth, iter, b);
         }
     }
 }

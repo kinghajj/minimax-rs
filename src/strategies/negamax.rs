@@ -69,6 +69,9 @@ where
     <E::G as Game>::M: Copy,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        if self.max_depth == 0 {
+            return None;
+        }
         let mut best = WORST_EVAL;
         let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);
@@ -81,7 +84,7 @@ where
         for &m in moves.iter() {
             // determine value for this move
             m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone, self.max_depth, WORST_EVAL, -best);
+            let value = -self.negamax(&mut s_clone, self.max_depth - 1, WORST_EVAL, -best);
             m.undo(&mut s_clone);
             // Strictly better than any move found so far.
             if value > best {

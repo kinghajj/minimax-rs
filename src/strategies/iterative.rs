@@ -1,6 +1,6 @@
 //! An implementation of iterative deepening evaluation.
 //!
-//! Search and evaluate at depth 0, then start over at depth 1, then depth 2,
+//! Search and evaluate at depth 1, then start over at depth 2, then depth 3,
 //! etc. Can keep going until a maximum depth or maximum time or either. Uses
 //! a transposition table to reuse information from previous iterations.
 
@@ -423,7 +423,7 @@ where
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
         let negamaxer = Negamaxer::new(table, eval, opts.clone());
         IterativeSearch {
-            max_depth: 100,
+            max_depth: 99,
             max_time: Duration::from_secs(5),
             prev_value: 0,
             negamaxer,
@@ -447,7 +447,7 @@ where
     /// iteration. Unlimited max depth.
     pub fn set_timeout(&mut self, max_time: Duration) {
         self.max_time = max_time;
-        self.max_depth = 100;
+        self.max_depth = 99;
     }
 
     /// Return a human-readable summary of the last move generation.
@@ -525,20 +525,24 @@ where
         let mut interval_start = start_time;
         let mut maxxed = false;
 
+        // Start at 1 or 2 to hit the max depth.
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        if depth == 0 {
+            depth = self.opts.step_increment;
+        }
         while depth <= self.max_depth as u8 {
             if self.opts.verbose && !maxxed {
                 interval_start = Instant::now();
-                eprintln!("Iterative search depth {}", depth + 1);
+                eprintln!("Iterative search depth {}", depth);
             }
             let search = if self.opts.mtdf {
-                self.mtdf(&mut s_clone, depth + 1, self.prev_value)
+                self.mtdf(&mut s_clone, depth, self.prev_value)
             } else {
                 if let Some(window) = self.opts.aspiration_window {
                     // Results of the search are stored in the table.
                     if self
                         .negamaxer
-                        .aspiration_search(&mut s_clone, depth + 1, self.prev_value, window)
+                        .aspiration_search(&mut s_clone, depth, self.prev_value, window)
                         .is_none()
                     {
                         // Timeout.
@@ -559,7 +563,7 @@ where
                     }
                 }
 
-                self.negamaxer.negamax(&mut s_clone, depth + 1, WORST_EVAL, BEST_EVAL)
+                self.negamaxer.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL)
             };
             if search.is_none() {
                 // Timeout. Return the best move from the previous depth.
@@ -586,7 +590,7 @@ where
             self.negamaxer.nodes_explored = 0;
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
-            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone, depth + 1);
+            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone, depth);
         }
         self.wall_time = start_time.elapsed();
         if self.opts.verbose {
