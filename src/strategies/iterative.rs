@@ -115,6 +115,7 @@ pub struct IterativeOptions {
     pub(super) table_byte_size: usize,
     pub(super) strategy: Replacement,
     pub(super) null_window_search: bool,
+    pub(super) null_move_depth: Option<u8>,
     pub(super) aspiration_window: Option<Evaluation>,
     pub(super) mtdf: bool,
     pub(super) step_increment: u8,
@@ -129,6 +130,7 @@ impl IterativeOptions {
             table_byte_size: 1_000_000,
             strategy: Replacement::TwoTier,
             null_window_search: true,
+            null_move_depth: None,
             aspiration_window: None,
             mtdf: false,
             step_increment: 1,
@@ -164,6 +166,14 @@ impl IterativeOptions {
     /// variation search.
     pub fn with_null_window_search(mut self, null: bool) -> Self {
         self.null_window_search = null;
+        self
+    }
+
+    /// Whether to attempt to cut off early by seeing if each node is amazing
+    /// even after passing the turn to the opponent. Null move search explores
+    /// the tree at a depth reduced by this amount.
+    pub fn with_null_move_depth(mut self, depth_reduction: u8) -> Self {
+        self.null_move_depth = Some(depth_reduction);
         self
     }
 
@@ -319,6 +329,23 @@ where
         let mut good_move = None;
         if let Some(value) = self.table.check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
             return Some(value);
+        }
+
+        if let (Some(depth_reduction), Some(null_move)) =
+            (self.opts.null_move_depth, E::G::null_move(s))
+        {
+            if depth >= depth_reduction {
+                // If we just pass and let the opponent play this position (at reduced depth),
+                null_move.apply(s);
+                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
+                null_move.undo(s);
+                // is the result still so good that we shouldn't bother with a full search?
+                if value >= beta {
+                    // This value was at a fake depth, so don't assume too
+                    // much about the lowerbound.
+                    return Some(beta);
+                }
+            }
         }
 
         let mut moves = self.move_pool.alloc();
@@ -548,18 +575,18 @@ where
                         // Timeout.
                         break;
                     }
-                }
-                if self.opts.verbose && !maxxed {
-                    if let Some(entry) = self.negamaxer.table.lookup(root_hash) {
-                        let end = Instant::now();
-                        let interval = end - interval_start;
-                        eprintln!(
-                            "Iterative aspiration search took {}ms; value{} bestmove={}",
-                            interval.as_millis(),
-                            entry.bounds(),
-                            move_id::<E::G>(&mut s_clone, entry.best_move)
-                        );
-                        interval_start = end;
+                    if self.opts.verbose && !maxxed {
+                        if let Some(entry) = self.negamaxer.table.lookup(root_hash) {
+                            let end = Instant::now();
+                            let interval = end - interval_start;
+                            eprintln!(
+                                "Iterative aspiration search took {}ms; value{} bestmove={}",
+                                interval.as_millis(),
+                                entry.bounds(),
+                                move_id::<E::G>(&mut s_clone, entry.best_move)
+                            );
+                            interval_start = end;
+                        }
                     }
                 }
 

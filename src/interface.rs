@@ -130,6 +130,14 @@ pub trait Game: Sized {
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if
     /// the state is non-terminal.
     fn get_winner(state: &Self::S) -> Option<Winner>;
+
+    /// Optional method to return a move that does not change the board state.
+    /// This does not need to be a legal move from this position, but it is
+    /// used in some strategies to reject a position early if even passing gives
+    /// a good position for the opponent.
+    fn null_move(_state: &Self::S) -> Option<Self::M> {
+        None
+    }
 }
 
 /// Defines a method of choosing a move for the current player.
