@@ -9,6 +9,7 @@ use super::super::util::*;
 use super::table::*;
 use super::util::*;
 
+use rand::prelude::SliceRandom;
 use std::cmp::max;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -422,6 +423,24 @@ where
         self.negamax(s, depth, alpha, beta)?;
         Some(())
     }
+
+    pub(super) fn search_and_reorder(
+        &mut self, s: &mut <E::G as Game>::S, moves: &mut [ValueMove<<E::G as Game>::M>], depth: u8,
+    ) -> Option<Evaluation> {
+        let mut alpha = WORST_EVAL;
+        let beta = BEST_EVAL;
+        for value_move in moves.iter_mut() {
+            value_move.m.apply(s);
+            let value = -self.negamax(s, depth - 1, -beta, -alpha)?;
+            value_move.m.undo(s);
+
+            alpha = max(alpha, value);
+            value_move.value = value;
+        }
+        moves.sort_by_key(|vm| -vm.value);
+        self.table.update(s.zobrist_hash(), alpha, beta, depth, moves[0].value, moves[0].m);
+        Some(moves[0].value)
+    }
 }
 
 pub struct IterativeSearch<E: Evaluator> {
@@ -551,6 +570,12 @@ where
         let mut best_move = None;
         let mut interval_start = start_time;
         let mut maxxed = false;
+        // Store the moves so they can be reordered every iteration.
+        let mut moves = Vec::new();
+        E::G::generate_moves(&s_clone, &mut moves);
+        // Start in a random order.
+        moves.shuffle(&mut rand::thread_rng());
+        let mut moves = moves.into_iter().map(|m| ValueMove::new(0, m)).collect::<Vec<_>>();
 
         // Start at 1 or 2 to hit the max depth.
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
@@ -590,7 +615,7 @@ where
                     }
                 }
 
-                self.negamaxer.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL)
+                self.negamaxer.search_and_reorder(&mut s_clone, &mut moves[..], depth)
             };
             if search.is_none() {
                 // Timeout. Return the best move from the previous depth.

@@ -386,6 +386,12 @@ where
         let mut best_move = None;
         let mut interval_start = start_time;
         let mut maxxed = false;
+        // Store the moves so they can be reordered every iteration.
+        let mut moves = Vec::new();
+        E::G::generate_moves(&s_clone, &mut moves);
+        // Start in a random order.
+        moves.shuffle(&mut rand::thread_rng());
+        let mut moves = moves.into_iter().map(|m| ValueMove::new(0, m)).collect::<Vec<_>>();
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         if depth == 0 {
@@ -430,7 +436,7 @@ where
 
             self.signal.new_search(&s, depth, WORST_EVAL, BEST_EVAL);
 
-            let value = self.negamaxer.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL);
+            let value = self.negamaxer.search_and_reorder(&mut s_clone, &mut moves, depth);
             if value.is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;

@@ -81,8 +81,8 @@ where
 
 // This exists to be wrapped in a mutex, because it didn't work when I tried a tuple.
 pub(super) struct ValueMove<M> {
-    value: Evaluation,
-    m: M,
+    pub(super) value: Evaluation,
+    pub(super) m: M,
 }
 
 impl<M> ValueMove<M> {
