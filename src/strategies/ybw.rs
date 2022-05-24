@@ -328,18 +328,37 @@ where
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
         let mut best_move = None;
+        let mut interval_start = start_time;
+        let mut maxxed = false;
 
         let mut depth = self.max_depth as u8 % self.opts.step_increment;
         if depth == 0 {
             depth = self.opts.step_increment;
         }
         while depth <= self.max_depth as u8 {
+            if self.opts.verbose && !maxxed {
+                interval_start = Instant::now();
+                eprintln!("Ybw search depth {}", depth);
+            }
             if self.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }
             let entry = self.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
+
+            if self.opts.verbose && !maxxed {
+                let interval = Instant::now() - interval_start;
+                eprintln!(
+                    "Ybw search took {}ms; returned {:?} bestmove={}",
+                    interval.as_millis(),
+                    entry.value,
+                    move_id::<E::G>(&mut s_clone, best_move)
+                );
+                if unclamp_value(entry.value).abs() == BEST_EVAL {
+                    maxxed = true;
+                }
+            }
 
             self.actual_depth = max(self.actual_depth, depth);
             self.nodes_explored.push(self.next_depth_nodes);
@@ -349,6 +368,10 @@ where
             self.table.populate_pv(&mut self.pv, &mut s_clone, depth);
         }
         self.wall_time = start_time.elapsed();
+        if self.opts.verbose {
+            let mut s_clone = s.clone();
+            eprintln!("Principal variation: {}", pv_string::<E::G>(&self.pv[..], &mut s_clone));
+        }
         best_move
     }
 }
