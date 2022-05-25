@@ -21,12 +21,13 @@ use std::time::{Duration, Instant};
 /// Options to use for the parallel search engine.
 #[derive(Clone, Copy)]
 pub struct YbwOptions {
+    num_threads: Option<usize>,
     serial_cutoff_depth: u8,
 }
 
 impl YbwOptions {
     pub fn new() -> Self {
-        YbwOptions { serial_cutoff_depth: 1 }
+        YbwOptions { num_threads: None, serial_cutoff_depth: 1 }
     }
 }
 
@@ -37,6 +38,12 @@ impl Default for YbwOptions {
 }
 
 impl YbwOptions {
+    /// Set the total number of threads to use. Otherwise defaults to num_cpus.
+    pub fn with_num_threads(mut self, num_threads: usize) -> Self {
+        self.num_threads = Some(num_threads);
+        self
+    }
+
     /// At what depth should we stop trying to parallelize and just run serially.
     pub fn with_serial_cutoff_depth(mut self, depth: u8) -> Self {
         self.serial_cutoff_depth = depth;
@@ -52,6 +59,8 @@ pub struct ParallelYbw<E: Evaluator> {
     //move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
     eval: E,
+
+    thread_pool: rayon::ThreadPool,
 
     opts: IterativeOptions,
     ybw_opts: YbwOptions,
@@ -76,6 +85,8 @@ pub struct ParallelYbw<E: Evaluator> {
 impl<E: Evaluator> ParallelYbw<E> {
     pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
         let table = LockfreeTable::new(opts.table_byte_size);
+        let num_threads = ybw_opts.num_threads.unwrap_or_else(num_cpus::get);
+        let pool_builder = rayon::ThreadPoolBuilder::new().num_threads(num_threads);
         ParallelYbw {
             max_depth: 99,
             max_time: Duration::from_secs(5),
@@ -83,6 +94,7 @@ impl<E: Evaluator> ParallelYbw<E> {
             table,
             //move_pool: MovePool::<_>::default(),
             prev_value: 0,
+            thread_pool: pool_builder.build().unwrap(),
             opts,
             ybw_opts,
             eval,
@@ -340,7 +352,11 @@ where
                 interval_start = Instant::now();
                 eprintln!("Ybw search depth {}", depth);
             }
-            if self.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL).is_none() {
+            if self
+                .thread_pool
+                .install(|| self.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL))
+                .is_none()
+            {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }
