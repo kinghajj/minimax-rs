@@ -127,8 +127,8 @@ impl MCTSOptions {
     }
 
     /// How many threads to run. Defaults to num_cpus.
-    pub fn with_num_threads(mut self, threads: u32) -> Self {
-        self.num_threads = Some(threads as usize);
+    pub fn with_num_threads(mut self, threads: usize) -> Self {
+        self.num_threads = Some(threads);
         self
     }
 }
