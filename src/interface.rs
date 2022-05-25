@@ -22,6 +22,21 @@ pub trait Evaluator {
     /// move next.
     fn evaluate(&self, s: &<Self::G as Game>::S) -> Evaluation;
 
+    /// Optional interface to support strategies using quiescence search.
+    ///
+    /// A "noisy" move is a threatening move that requires a response.
+    ///
+    /// The term comes from chess, where capturing a piece is considered a noisy
+    /// move. Capturing a piece is often the first move out of an exchange of
+    /// captures. Evaluating the board state after only the first capture can
+    /// give a misleadingly high score. The solution is to continue the search
+    /// among only noisy moves and find the score once the board state settles.
+    fn is_noisy_move(&self, _state: &<Self::G as Game>::S, _move: <Self::G as Game>::M) -> bool {
+        // When unimplemented, there are no noisy moves and search terminates
+        // immediately.
+        false
+    }
+
     /// After generating moves, reorder them to explore the most promising first.
     /// The default implementation evaluates all thes game states and sorts highest Evaluation first.
     fn reorder_moves(&self, s: &mut <Self::G as Game>::S, moves: &mut [<Self::G as Game>::M])
@@ -111,20 +126,6 @@ pub trait Game: Sized {
 
     /// Generate moves at the given state.
     fn generate_moves(state: &Self::S, moves: &mut Vec<Self::M>);
-
-    /// Optional interface to support strategies using quiescence search.
-    ///
-    /// A "noisy" move is a threatening move that requires a response.
-    ///
-    /// The term comes from chess, where capturing a piece is considered a noisy
-    /// move. Capturing a piece is often the first move out of an exchange of
-    /// captures. Evaluating the board state after only the first capture can
-    /// give a misleadingly high score. The solution is to continue the search
-    /// among only noisy moves and find the score once the board state settles.
-    fn generate_noisy_moves(_state: &Self::S, _moves: &mut Vec<Self::M>) {
-        // When unimplemented, there are no noisy moves and search terminates
-        // immediately.
-    }
 
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if

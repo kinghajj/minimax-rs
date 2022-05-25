@@ -81,12 +81,10 @@ where
     }
 
     // Negamax only among noisy moves.
+    // Negamax only among noisy moves.
     fn noisy_negamax(
         &self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
-    ) -> Option<Evaluation>
-    where
-        <E::G as Game>::M: Copy,
-    {
+    ) -> Option<Evaluation> {
         if self.timeout.load(Ordering::Relaxed) {
             return None;
         }
@@ -99,15 +97,15 @@ where
 
         //let mut moves = self.move_pool.alloc();
         let mut moves = Vec::new();
-        E::G::generate_noisy_moves(s, &mut moves);
-        if moves.is_empty() {
-            // Only quiet moves remain, return leaf evaluation.
-            //self.move_pool.free(moves);
-            return Some(self.eval.evaluate(s));
-        }
+        E::G::generate_moves(s, &mut moves);
 
         let mut best = WORST_EVAL;
+        let mut any_noisy = false;
         for m in moves.iter() {
+            if !self.eval.is_noisy_move(s, *m) {
+                continue;
+            }
+            any_noisy = true;
             m.apply(s);
             let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
             m.undo(s);
@@ -118,7 +116,12 @@ where
             }
         }
         //self.move_pool.free(moves);
-        Some(best)
+        Some(if !any_noisy {
+            // Only quiet moves remain, return leaf evaluation.
+            self.eval.evaluate(s)
+        } else {
+            best
+        })
     }
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
