@@ -285,7 +285,18 @@ where
                 }
                 break;
             }
-            let entry = self.table.lookup(root_hash).unwrap();
+            let entry = match self.table.lookup(root_hash) {
+                Some(entry) => entry,
+                None => {
+                    if background {
+                        // Main tasks overwrote our result, just bail early.
+                        return None;
+                    } else {
+                        panic!("Probably some race condition ate the best entry.");
+                    }
+                }
+            };
+
             best_move = entry.best_move;
             best_value = entry.value;
 
