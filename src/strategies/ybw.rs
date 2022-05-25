@@ -152,6 +152,23 @@ where
             return Some(value);
         }
 
+        if let (Some(depth_reduction), Some(null_move)) =
+            (self.opts.null_move_depth, E::G::null_move(s))
+        {
+            if depth >= depth_reduction {
+                // If we just pass and let the opponent play this position (at reduced depth),
+                null_move.apply(s);
+                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
+                null_move.undo(s);
+                // is the result still so good that we shouldn't bother with a full search?
+                if value >= beta {
+                    // This value was at a fake depth, so don't assume too
+                    // much about the lowerbound.
+                    return Some(beta);
+                }
+            }
+        }
+
         //let mut moves = self.move_pool.alloc();
         let mut moves = Vec::new();
         E::G::generate_moves(s, &mut moves);
