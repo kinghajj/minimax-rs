@@ -23,11 +23,12 @@ use std::time::{Duration, Instant};
 pub struct YbwOptions {
     num_threads: Option<usize>,
     serial_cutoff_depth: u8,
+    background_pondering: bool,
 }
 
 impl YbwOptions {
     pub fn new() -> Self {
-        YbwOptions { num_threads: None, serial_cutoff_depth: 1 }
+        YbwOptions { num_threads: None, serial_cutoff_depth: 1, background_pondering: false }
     }
 }
 
@@ -49,90 +50,34 @@ impl YbwOptions {
         self.serial_cutoff_depth = depth;
         self
     }
+
+    /// Continuing processing during opponent's move.
+    pub fn with_background_pondering(mut self) -> Self {
+        self.background_pondering = true;
+        self
+    }
 }
 
-pub struct ParallelYbw<E: Evaluator> {
-    max_depth: usize,
-    max_time: Duration,
-    timeout: Arc<AtomicBool>,
-    table: LockfreeTable<<<E as Evaluator>::G as Game>::M>,
-    //move_pool: MovePool<<E::G as Game>::M>,
-    prev_value: Evaluation,
+struct ParallelNegamaxer<E: Evaluator> {
+    table: Arc<LockfreeTable<<E::G as Game>::M>>,
     eval: E,
-
-    thread_pool: rayon::ThreadPool,
-
     opts: IterativeOptions,
     ybw_opts: YbwOptions,
-
-    // Runtime stats for the last move generated.
-
-    // Maximum depth used to produce the move.
-    actual_depth: u8,
-    // Nodes explored at each depth.
-    nodes_explored: Vec<u64>,
-    // Nodes explored past this depth, and thus only useful for filling TT for
-    // next choose_move.
-    next_depth_nodes: u64,
-    // For computing the average branching factor.
-    total_generate_move_calls: u64,
-    total_generated_moves: u64,
-    table_hits: usize,
-    pv: Vec<<E::G as Game>::M>,
-    wall_time: Duration,
+    timeout: Arc<AtomicBool>,
+    // TODO: stats
 }
 
-impl<E: Evaluator> ParallelYbw<E> {
-    pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
-        let table = LockfreeTable::new(opts.table_byte_size);
-        let num_threads = ybw_opts.num_threads.unwrap_or_else(num_cpus::get);
-        let pool_builder = rayon::ThreadPoolBuilder::new().num_threads(num_threads);
-        ParallelYbw {
-            max_depth: 99,
-            max_time: Duration::from_secs(5),
-            timeout: Arc::new(AtomicBool::new(false)),
-            table,
-            //move_pool: MovePool::<_>::default(),
-            prev_value: 0,
-            thread_pool: pool_builder.build().unwrap(),
-            opts,
-            ybw_opts,
-            eval,
-            actual_depth: 0,
-            nodes_explored: Vec::new(),
-            next_depth_nodes: 0,
-            total_generate_move_calls: 0,
-            total_generated_moves: 0,
-            table_hits: 0,
-            pv: Vec::new(),
-            wall_time: Duration::default(),
-        }
-    }
-
-    /// Set the maximum depth to search. Disables the timeout.
-    /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: usize) {
-        self.max_depth = depth;
-        self.max_time = Duration::new(0, 0);
-    }
-
-    /// Set the maximum time to compute the best move. When the timeout is
-    /// hit, it returns the best move found of the previous full
-    /// iteration. Unlimited max depth.
-    pub fn set_timeout(&mut self, max_time: Duration) {
-        self.max_time = max_time;
-        self.max_depth = 99;
-    }
-
-    #[doc(hidden)]
-    pub fn root_value(&self) -> Evaluation {
-        unclamp_value(self.prev_value)
-    }
-
-    /// Return what the engine considered to be the best sequence of moves
-    /// from both sides.
-    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
-        &self.pv[..]
+impl<E: Evaluator> ParallelNegamaxer<E>
+where
+    <E::G as Game>::S: Clone + Zobrist + Send + Sync,
+    <E::G as Game>::M: Copy + Eq + Send + Sync,
+    E: Clone + Sync + Send + 'static,
+{
+    fn new(
+        opts: IterativeOptions, ybw_opts: YbwOptions, eval: E,
+        table: Arc<LockfreeTable<<E::G as Game>::M>>, timeout: Arc<AtomicBool>,
+    ) -> Self {
+        Self { table, eval, opts, ybw_opts, timeout }
     }
 
     // Negamax only among noisy moves.
@@ -312,82 +257,182 @@ impl<E: Evaluator> ParallelYbw<E> {
         //self.move_pool.free(moves);
         Some(clamp_value(best))
     }
-}
 
-impl<E: Evaluator> Strategy<E::G> for ParallelYbw<E>
-where
-    <E::G as Game>::S: Clone + Zobrist + Send + Sync,
-    <E::G as Game>::M: Copy + Eq + Send + Sync,
-    E: Sync,
-{
-    fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
-        self.table.advance_generation();
-        // Reset stats.
-        self.nodes_explored.clear();
-        self.next_depth_nodes = 0;
-        self.total_generate_move_calls = 0;
-        self.total_generated_moves = 0;
-        self.actual_depth = 0;
-        self.table_hits = 0;
-        let start_time = Instant::now();
-        // Start timer if configured.
-        self.timeout = if self.max_time == Duration::new(0, 0) {
-            Arc::new(AtomicBool::new(false))
-        } else {
-            timeout_signal(self.max_time)
-        };
-
-        let root_hash = s.zobrist_hash();
-        let mut s_clone = s.clone();
+    fn iterative_search(
+        &self, mut state: <E::G as Game>::S, max_depth: u8, background: bool,
+    ) -> Option<(<E::G as Game>::M, Evaluation)> {
+        self.table.concurrent_advance_generation();
+        let root_hash = state.zobrist_hash();
         let mut best_move = None;
-        let mut interval_start = start_time;
+        let mut best_value = 0;
+        let mut interval_start = Instant::now();
         let mut maxxed = false;
+        let mut pv = String::new();
 
-        let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        let mut depth = max_depth % self.opts.step_increment;
         if depth == 0 {
             depth = self.opts.step_increment;
         }
-        while depth <= self.max_depth as u8 {
-            if self.opts.verbose && !maxxed {
+        while depth <= max_depth as u8 {
+            if self.opts.verbose && !background && !maxxed {
                 interval_start = Instant::now();
-                eprintln!("Ybw search depth {}", depth);
+                eprint!("Ybw search depth{:>2}", depth);
             }
-            if self
-                .thread_pool
-                .install(|| self.negamax(&mut s_clone, depth, WORST_EVAL, BEST_EVAL))
-                .is_none()
-            {
+            if self.negamax(&mut state, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
+                if self.opts.verbose && !background && !maxxed {
+                    eprintln!(" timed out");
+                }
                 break;
             }
             let entry = self.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
+            best_value = entry.value;
 
-            if self.opts.verbose && !maxxed {
+            if self.opts.verbose && !background && !maxxed {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
-                    "Ybw search took {}ms; returned {:?} bestmove={}",
+                    " took{:>5}ms; returned{:>5}; bestmove {}",
                     interval.as_millis(),
-                    entry.value,
-                    move_id::<E::G>(&mut s_clone, best_move)
+                    entry.value_string(),
+                    move_id::<E::G>(&mut state, best_move)
                 );
                 if unclamp_value(entry.value).abs() == BEST_EVAL {
                     maxxed = true;
                 }
             }
 
-            self.actual_depth = max(self.actual_depth, depth);
-            self.nodes_explored.push(self.next_depth_nodes);
-            self.prev_value = entry.value;
-            self.next_depth_nodes = 0;
             depth += self.opts.step_increment;
-            self.table.populate_pv(&mut self.pv, &mut s_clone, depth);
+            let mut pv_moves = Vec::new();
+            self.table.populate_pv(&mut pv_moves, &mut state, depth);
+            pv = pv_string::<E::G>(&pv_moves[..], &mut state);
         }
-        self.wall_time = start_time.elapsed();
-        if self.opts.verbose {
-            let mut s_clone = s.clone();
-            eprintln!("Principal variation: {}", pv_string::<E::G>(&self.pv[..], &mut s_clone));
+        if self.opts.verbose && !background {
+            eprintln!("Principal variation: {}", pv);
         }
-        best_move
+        best_move.map(|m| (m, best_value))
+    }
+}
+
+pub struct ParallelYbw<E: Evaluator> {
+    max_depth: u8,
+    max_time: Duration,
+
+    background_cancel: Arc<AtomicBool>,
+    table: Arc<LockfreeTable<<E::G as Game>::M>>,
+    //move_pool: MovePool<<E::G as Game>::M>,
+    prev_value: Evaluation,
+    eval: E,
+
+    thread_pool: rayon::ThreadPool,
+
+    opts: IterativeOptions,
+    ybw_opts: YbwOptions,
+}
+
+impl<E: Evaluator> ParallelYbw<E> {
+    pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
+        let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
+        let num_threads = ybw_opts.num_threads.unwrap_or_else(num_cpus::get);
+        let pool_builder = rayon::ThreadPoolBuilder::new().num_threads(num_threads);
+        ParallelYbw {
+            max_depth: 99,
+            max_time: Duration::from_secs(5),
+            background_cancel: Arc::new(AtomicBool::new(false)),
+            table,
+            //move_pool: MovePool::<_>::default(),
+            prev_value: 0,
+            thread_pool: pool_builder.build().unwrap(),
+            opts,
+            ybw_opts,
+            eval,
+        }
+    }
+
+    /// Set the maximum depth to search. Disables the timeout.
+    /// This can be changed between moves while reusing the transposition table.
+    pub fn set_max_depth(&mut self, depth: u8) {
+        self.max_depth = depth;
+        self.max_time = Duration::new(0, 0);
+    }
+
+    /// Set the maximum time to compute the best move. When the timeout is
+    /// hit, it returns the best move found of the previous full
+    /// iteration. Unlimited max depth.
+    pub fn set_timeout(&mut self, max_time: Duration) {
+        self.max_time = max_time;
+        self.max_depth = 99;
+    }
+
+    #[doc(hidden)]
+    pub fn root_value(&self) -> Evaluation {
+        unclamp_value(self.prev_value)
+    }
+
+    // Unimplemented, just use verbose mode.
+    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
+        &[]
+    }
+}
+
+impl<E: Evaluator> Strategy<E::G> for ParallelYbw<E>
+where
+    <E::G as Game>::S: Clone + Zobrist + Send + Sync,
+    <E::G as Game>::M: Copy + Eq + Send + Sync,
+    E: Clone + Sync + Send + 'static,
+{
+    fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        // Cancel any ongoing background processing.
+        self.background_cancel.store(true, Ordering::SeqCst);
+        // Start timer if configured.
+        let timeout = if self.max_time == Duration::new(0, 0) {
+            Arc::new(AtomicBool::new(false))
+        } else {
+            timeout_signal(self.max_time)
+        };
+
+        let best_value_move = {
+            let negamaxer = ParallelNegamaxer::new(
+                self.opts.clone(),
+                self.ybw_opts.clone(),
+                self.eval.clone(),
+                self.table.clone(),
+                timeout.clone(),
+            );
+            // Launch in threadpool and wait for result.
+            self.thread_pool
+                .install(|| negamaxer.iterative_search(s.clone(), self.max_depth, false))
+        };
+        if let Some((best_move, value)) = best_value_move {
+            self.prev_value = value;
+
+            if self.ybw_opts.background_pondering {
+                self.background_cancel = Arc::new(AtomicBool::new(false));
+                // Create a separate negamaxer to have a dedicated cancel
+                // signal, and to allow the negamaxer to outlive this scope.
+                let negamaxer = ParallelNegamaxer::new(
+                    self.opts.clone(),
+                    self.ybw_opts.clone(),
+                    self.eval.clone(),
+                    self.table.clone(),
+                    self.background_cancel.clone(),
+                );
+                let mut state = s.clone();
+                best_move.apply(&mut state);
+                // Launch in threadpool asynchronously.
+                self.thread_pool.spawn(move || {
+                    negamaxer.iterative_search(state, 99, true);
+                });
+            }
+            Some(best_move)
+        } else {
+            None
+        }
+    }
+}
+
+impl<E: Evaluator> Drop for ParallelYbw<E> {
+    fn drop(&mut self) {
+        self.background_cancel.store(true, Ordering::SeqCst);
     }
 }

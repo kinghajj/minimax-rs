@@ -34,6 +34,14 @@ pub(super) fn high_bits(hash: u64) -> u32 {
 }
 
 impl<M> Entry<M> {
+    pub(super) fn value_string(&self) -> String {
+        match unclamp_value(self.value) {
+            WORST_EVAL => "-∞".to_owned(),
+            BEST_EVAL => "∞".to_owned(),
+            value => value.to_string(),
+        }
+    }
+
     pub(super) fn bounds(&self) -> String {
         match self.flag {
             EntryFlag::Exact => "=",
@@ -41,11 +49,7 @@ impl<M> Entry<M> {
             EntryFlag::Lowerbound => "≥",
         }
         .to_string()
-            + &match unclamp_value(self.value) {
-                WORST_EVAL => "-∞".to_owned(),
-                BEST_EVAL => "∞".to_owned(),
-                value => value.to_string(),
-            }
+            + &self.value_string()
     }
 }
 

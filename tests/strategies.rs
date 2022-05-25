@@ -179,7 +179,7 @@ fn compare_plain_negamax() {
 
             let opt = IterativeOptions::new().with_table_byte_size(64000);
             let mut ybw = ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
-            ybw.set_max_depth(max_depth);
+            ybw.set_max_depth(max_depth as u8);
             let ybw_move = ybw.choose_move(&b).unwrap();
             let ybw_value = ybw.root_value();
             assert_eq!(value, ybw_value, "search depth={}\n{}", max_depth, b);
@@ -236,7 +236,7 @@ fn compare_deep_negamax() {
 
             let mut parallel =
                 ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
-            parallel.set_max_depth(max_depth);
+            parallel.set_max_depth(max_depth as u8);
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();
             assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
