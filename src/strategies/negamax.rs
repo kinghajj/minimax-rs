@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 use std::cmp::max;
 
 pub struct Negamax<E: Evaluator> {
-    max_depth: usize,
+    max_depth: u8,
     move_pool: MovePool<<E::G as Game>::M>,
     rng: rand::rngs::ThreadRng,
     prev_value: Evaluation,
@@ -18,7 +18,7 @@ pub struct Negamax<E: Evaluator> {
 }
 
 impl<E: Evaluator> Negamax<E> {
-    pub fn new(eval: E, depth: usize) -> Negamax<E> {
+    pub fn new(eval: E, depth: u8) -> Negamax<E> {
         Negamax {
             max_depth: depth,
             move_pool: MovePool::<_>::default(),
@@ -34,7 +34,7 @@ impl<E: Evaluator> Negamax<E> {
     }
 
     fn negamax(
-        &mut self, s: &mut <E::G as Game>::S, depth: usize, mut alpha: Evaluation, beta: Evaluation,
+        &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
     ) -> Evaluation
     where
         <<E as Evaluator>::G as Game>::M: Copy,

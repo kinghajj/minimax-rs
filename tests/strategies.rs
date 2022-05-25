@@ -16,7 +16,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 
 pub struct PlainNegamax<E: Evaluator> {
-    depth: usize,
+    depth: u8,
     root_value: Evaluation,
     // All moves tied with the best valuation.
     best_moves: Vec<<E::G as Game>::M>,
@@ -24,11 +24,11 @@ pub struct PlainNegamax<E: Evaluator> {
 }
 
 impl<E: Evaluator> PlainNegamax<E> {
-    pub fn new(eval: E, depth: usize) -> PlainNegamax<E> {
+    pub fn new(eval: E, depth: u8) -> PlainNegamax<E> {
         PlainNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), eval }
     }
 
-    fn negamax(&self, s: &mut <E::G as Game>::S, depth: usize) -> Evaluation
+    fn negamax(&self, s: &mut <E::G as Game>::S, depth: u8) -> Evaluation
     where
         <<E as Evaluator>::G as Game>::M: Copy,
     {
@@ -102,7 +102,7 @@ impl minimax::Evaluator for RandomEvaluator {
     }
 }
 
-fn generate_random_state(depth: usize) -> connect4::Board {
+fn generate_random_state(depth: u8) -> connect4::Board {
     let mut rng = rand::thread_rng();
     let mut b = connect4::Board::default();
     for _ in 0..depth {
@@ -179,7 +179,7 @@ fn compare_plain_negamax() {
 
             let opt = IterativeOptions::new().with_table_byte_size(64000);
             let mut ybw = ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
-            ybw.set_max_depth(max_depth as u8);
+            ybw.set_max_depth(max_depth);
             let ybw_move = ybw.choose_move(&b).unwrap();
             let ybw_value = ybw.root_value();
             assert_eq!(value, ybw_value, "search depth={}\n{}", max_depth, b);
@@ -236,7 +236,7 @@ fn compare_deep_negamax() {
 
             let mut parallel =
                 ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
-            parallel.set_max_depth(max_depth as u8);
+            parallel.set_max_depth(max_depth);
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();
             assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);

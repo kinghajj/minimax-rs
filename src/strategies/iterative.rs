@@ -444,7 +444,7 @@ where
 }
 
 pub struct IterativeSearch<E: Evaluator> {
-    max_depth: usize,
+    max_depth: u8,
     max_time: Duration,
     negamaxer: Negamaxer<E, TranspositionTable<<E::G as Game>::M>>,
     prev_value: Evaluation,
@@ -483,7 +483,7 @@ where
 
     /// Set the maximum depth to search. Disables the timeout.
     /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: usize) {
+    pub fn set_max_depth(&mut self, depth: u8) {
         self.max_depth = depth;
         self.max_time = Duration::new(0, 0);
     }

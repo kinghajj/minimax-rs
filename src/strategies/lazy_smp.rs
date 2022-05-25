@@ -247,7 +247,7 @@ where
     <E::G as Game>::S: Clone + Zobrist,
     <E::G as Game>::M: Copy + Eq,
 {
-    max_depth: usize,
+    max_depth: u8,
     max_time: Duration,
     table: Arc<LockfreeTable<<E::G as Game>::M>>,
     negamaxer: Negamaxer<E, Arc<LockfreeTable<<E::G as Game>::M>>>,
@@ -316,7 +316,7 @@ where
 
     /// Set the maximum depth to search. Disables the timeout.
     /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: usize) {
+    pub fn set_max_depth(&mut self, depth: u8) {
         self.max_depth = depth;
         self.max_time = Duration::new(0, 0);
     }

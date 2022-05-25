@@ -60,7 +60,7 @@ impl<M> MovePool<M> {
 }
 
 fn perft_recurse<G: Game>(
-    pool: &mut MovePool<G::M>, state: &mut G::S, depth: usize, single_thread_cutoff: usize,
+    pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
 ) -> u64
 where
     <G as Game>::S: Clone + Sync,
@@ -103,9 +103,7 @@ where
     n
 }
 
-pub fn perft<G: Game>(
-    state: &mut <G as Game>::S, max_depth: usize, multi_threaded: bool,
-) -> Vec<u64>
+pub fn perft<G: Game>(state: &mut <G as Game>::S, max_depth: u8, multi_threaded: bool) -> Vec<u64>
 where
     <G as Game>::S: Clone + Sync,
     <G as Game>::M: Copy + Sync,
