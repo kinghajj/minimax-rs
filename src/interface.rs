@@ -31,10 +31,14 @@ pub trait Evaluator {
     /// captures. Evaluating the board state after only the first capture can
     /// give a misleadingly high score. The solution is to continue the search
     /// among only noisy moves and find the score once the board state settles.
-    fn is_noisy_move(&self, _state: &<Self::G as Game>::S, _move: <Self::G as Game>::M) -> bool {
+    ///
+    /// Noisy moves are not inherent parts of the rules, but engine decisions,
+    /// so they are implemented in Evaluator instead of Game.
+    fn generate_noisy_moves(
+        &self, _state: &<Self::G as Game>::S, _moves: &mut Vec<<Self::G as Game>::M>,
+    ) {
         // When unimplemented, there are no noisy moves and search terminates
         // immediately.
-        false
     }
 
     /// After generating moves, reorder them to explore the most promising first.

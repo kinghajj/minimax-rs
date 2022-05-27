@@ -202,7 +202,7 @@ impl IterativeOptions {
 
     /// Enable [quiescence
     /// search](https://en.wikipedia.org/wiki/Quiescence_search) at the leaves
-    /// of the search tree.  The Evaluator must implement `is_noisy_move`
+    /// of the search tree.  The Evaluator must implement `generate_noisy_moves`
     /// for the search to know when the state has become "quiet".
     pub fn with_quiescence_search_depth(mut self, depth: u8) -> Self {
         self.max_quiescence_depth = depth;
@@ -283,15 +283,14 @@ where
         }
 
         let mut moves = self.move_pool.alloc();
-        E::G::generate_moves(s, &mut moves);
+        self.eval.generate_noisy_moves(s, &mut moves);
+        if moves.is_empty() {
+            self.move_pool.free(moves);
+            return Some(self.eval.evaluate(s));
+        }
 
         let mut best = WORST_EVAL;
-        let mut any_noisy = false;
         for m in moves.iter() {
-            if !self.eval.is_noisy_move(s, *m) {
-                continue;
-            }
-            any_noisy = true;
             m.apply(s);
             let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
             m.undo(s);
@@ -302,12 +301,7 @@ where
             }
         }
         self.move_pool.free(moves);
-        Some(if !any_noisy {
-            // Only quiet moves remain, return leaf evaluation.
-            self.eval.evaluate(s)
-        } else {
-            best
-        })
+        Some(best)
     }
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
