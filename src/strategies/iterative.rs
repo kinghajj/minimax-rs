@@ -619,7 +619,7 @@ where
             self.negamaxer.nodes_explored = 0;
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
-            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone, depth);
+            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone);
         }
         self.wall_time = start_time.elapsed();
         if self.opts.verbose {

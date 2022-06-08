@@ -448,7 +448,7 @@ where
             self.actual_depth = max(self.actual_depth, depth);
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
-            self.table.populate_pv(&mut self.pv, &mut s_clone, depth);
+            self.table.populate_pv(&mut self.pv, &mut s_clone);
             self.shared_stats.update(&mut self.negamaxer);
             self.nodes_explored.push(self.shared_stats.reset_nodes_explored());
         }

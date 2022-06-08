@@ -333,7 +333,7 @@ where
 
             depth += self.opts.step_increment;
             let mut pv_moves = Vec::new();
-            self.table.populate_pv(&mut pv_moves, &mut state, depth);
+            self.table.populate_pv(&mut pv_moves, &mut state);
             self.pv.lock().unwrap().clone_from(&pv_moves);
             pv = pv_string::<E::G>(&pv_moves[..], &mut state);
         }

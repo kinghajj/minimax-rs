@@ -106,12 +106,13 @@ pub(super) trait Table<M: Copy> {
 
     // After finishing a search, populate the principal variation as deep as
     // the table remembers it.
-    fn populate_pv<G: Game>(&self, pv: &mut Vec<M>, s: &mut G::S, mut depth: u8)
+    fn populate_pv<G: Game>(&self, pv: &mut Vec<M>, s: &mut G::S)
     where
         M: Move<G = G>,
         <G as Game>::S: Zobrist,
     {
         pv.clear();
+        let mut hash_history = Vec::new();
         let mut hash = s.zobrist_hash();
         while let Some(entry) = self.lookup(hash) {
             // The principal variation should only have exact nodes, as other
@@ -127,10 +128,10 @@ pub(super) trait Table<M: Copy> {
             m.apply(s);
             hash = s.zobrist_hash();
             // Prevent cyclical PVs from being infinitely long.
-            if depth == 0 {
+            if hash_history.contains(&hash) {
                 break;
             }
-            depth -= 1;
+            hash_history.push(hash);
         }
         // Restore state.
         for m in pv.iter().rev() {
