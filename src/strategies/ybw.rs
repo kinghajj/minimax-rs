@@ -56,6 +56,10 @@ impl YbwOptions {
         self.background_pondering = true;
         self
     }
+
+    fn num_threads(self) -> usize {
+        self.num_threads.unwrap_or_else(num_cpus::get)
+    }
 }
 
 struct ParallelNegamaxer<E: Evaluator> {
@@ -278,7 +282,7 @@ where
         let root_hash = state.zobrist_hash();
         let mut best_move = None;
         let mut best_value = 0;
-        let mut interval_start = Instant::now();
+        let mut interval_start;
         let mut maxxed = false;
         let mut pv = String::new();
 
@@ -287,15 +291,9 @@ where
             depth = self.opts.step_increment;
         }
         while depth <= max_depth as u8 {
-            if self.opts.verbose && !background && !maxxed {
-                interval_start = Instant::now();
-                eprint!("Ybw search depth{:>2}", depth);
-            }
+            interval_start = Instant::now();
             if self.negamax(&mut state, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
-                if self.opts.verbose && !background && !maxxed {
-                    eprintln!(" timed out");
-                }
                 break;
             }
             let entry = match self.table.lookup(root_hash) {
@@ -316,7 +314,9 @@ where
             if self.opts.verbose && !background && !maxxed {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
-                    " took{:>5}ms; returned{:>5}; bestmove {}",
+                    "Ybw search (threads={}) depth{:>2} took{:>5}ms; returned{:>5}; bestmove {}",
+                    self.ybw_opts.num_threads(),
+                    depth,
                     interval.as_millis(),
                     entry.value_string(),
                     move_id::<E::G>(&mut state, best_move)
@@ -357,7 +357,7 @@ pub struct ParallelYbw<E: Evaluator> {
 impl<E: Evaluator> ParallelYbw<E> {
     pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
         let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
-        let num_threads = ybw_opts.num_threads.unwrap_or_else(num_cpus::get);
+        let num_threads = ybw_opts.num_threads();
         let pool_builder = rayon::ThreadPoolBuilder::new().num_threads(num_threads);
         ParallelYbw {
             max_depth: 99,

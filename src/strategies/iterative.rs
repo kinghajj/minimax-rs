@@ -567,7 +567,7 @@ where
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
         let mut best_move = None;
-        let mut interval_start = start_time;
+        let mut interval_start;
         let mut maxxed = false;
         // Store the moves so they can be reordered every iteration.
         let mut moves = Vec::new();
@@ -582,10 +582,7 @@ where
             depth = self.opts.step_increment;
         }
         while depth <= self.max_depth as u8 {
-            if self.opts.verbose && !maxxed {
-                interval_start = Instant::now();
-                eprintln!("Iterative search depth {}", depth);
-            }
+            interval_start = Instant::now();
             let search = if self.opts.mtdf {
                 self.mtdf(&mut s_clone, depth, self.prev_value)
             } else {
@@ -604,7 +601,8 @@ where
                             let end = Instant::now();
                             let interval = end - interval_start;
                             eprintln!(
-                                "Iterative aspiration search took {}ms; value{} bestmove={}",
+                                "Iterative aspiration depth{:>2} took{:>5}ms; bounds{:>5} bestmove={}",
+                                depth,
                                 interval.as_millis(),
                                 entry.bounds(),
                                 move_id::<E::G>(&mut s_clone, entry.best_move)
@@ -626,9 +624,10 @@ where
             if self.opts.verbose && !maxxed {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
-                    "Iterative       full search took {}ms; returned {:?} bestmove={}",
+                    "Iterative fullsearch depth{:>2} took{:>5}ms; value{:>6} bestmove={}",
+                    depth,
                     interval.as_millis(),
-                    entry.value,
+                    entry.value_string(),
                     move_id::<E::G>(&mut s_clone, best_move)
                 );
                 if unclamp_value(entry.value).abs() == BEST_EVAL {

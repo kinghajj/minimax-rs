@@ -54,6 +54,10 @@ impl LazySmpOptions {
         self.differing_depths = true;
         self
     }
+
+    fn num_threads(self) -> usize {
+        self.num_threads.unwrap_or_else(num_cpus::get)
+    }
 }
 
 #[derive(Clone)]
@@ -254,6 +258,7 @@ where
     signal: Arc<CommandSignal<<E::G as Game>::S>>,
 
     opts: IterativeOptions,
+    num_threads: usize,
 
     // Runtime stats for the last move generated.
     prev_value: Evaluation,
@@ -279,8 +284,9 @@ where
         let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
         let stats = Arc::new(SharedStats::new());
         let signal = Arc::new(CommandSignal::new());
+        let num_threads = smp_opts.num_threads();
         // start n-1 helper threads
-        for iter in 1..smp_opts.num_threads.unwrap_or_else(num_cpus::get) {
+        for iter in 1..num_threads {
             let table2 = table.clone();
             let eval2 = eval.clone();
             let opts2 = opts.clone();
@@ -306,6 +312,7 @@ where
             signal,
             prev_value: 0,
             opts,
+            num_threads,
             actual_depth: 0,
             nodes_explored: Vec::new(),
             shared_stats: stats,
@@ -384,7 +391,7 @@ where
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();
         let mut best_move = None;
-        let mut interval_start = start_time;
+        let mut interval_start;
         let mut maxxed = false;
         // Store the moves so they can be reordered every iteration.
         let mut moves = Vec::new();
@@ -398,10 +405,7 @@ where
             depth = self.opts.step_increment;
         }
         while depth <= self.max_depth as u8 {
-            if self.opts.verbose && !maxxed {
-                interval_start = Instant::now();
-                eprintln!("LazySmp search depth {}", depth);
-            }
+            interval_start = Instant::now();
             if let Some(window) = self.opts.aspiration_window {
                 // First, parallel aspiration search to at least establish some bounds.
                 let mut alpha = self.prev_value.saturating_sub(window);
@@ -424,7 +428,9 @@ where
                         let end = Instant::now();
                         let interval = end - interval_start;
                         eprintln!(
-                            "LazySmp aspiration search took {}ms; value {} bestmove={}",
+                            "LazySmp (threads={}) aspiration depth{:>2} took{:>5}ms; bounds{:>5} bestmove={}",
+                            self.num_threads,
+                            depth,
                             interval.as_millis(),
                             entry.bounds(),
                             move_id::<E::G>(&mut s_clone, entry.best_move)
@@ -448,9 +454,11 @@ where
             if self.opts.verbose && !maxxed {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
-                    "LazySmp       full search took {}ms; returned {:?} bestmove={}",
+                    "LazySmp (threads={}) fullsearch depth{:>2} took{:>5}ms; value{:>6} bestmove={}",
+                    self.num_threads,
+                    depth,
                     interval.as_millis(),
-                    value.unwrap(),
+                    entry.value_string(),
                     move_id::<E::G>(&mut s_clone, entry.best_move)
                 );
                 if unclamp_value(value.unwrap()).abs() == BEST_EVAL {
