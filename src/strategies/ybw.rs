@@ -69,6 +69,7 @@ struct ParallelNegamaxer<E: Evaluator> {
     ybw_opts: YbwOptions,
     timeout: Arc<AtomicBool>,
     // TODO: stats
+    pv: Mutex<Vec<<E::G as Game>::M>>,
 }
 
 impl<E: Evaluator> ParallelNegamaxer<E>
@@ -81,7 +82,11 @@ where
         opts: IterativeOptions, ybw_opts: YbwOptions, eval: E,
         table: Arc<LockfreeTable<<E::G as Game>::M>>, timeout: Arc<AtomicBool>,
     ) -> Self {
-        Self { table, eval, opts, ybw_opts, timeout }
+        Self { table, eval, opts, ybw_opts, timeout, pv: Mutex::new(Vec::new()) }
+    }
+
+    fn principal_variation(&self) -> Vec<<E::G as Game>::M> {
+        self.pv.lock().unwrap().clone()
     }
 
     // Negamax only among noisy moves.
@@ -329,6 +334,7 @@ where
             depth += self.opts.step_increment;
             let mut pv_moves = Vec::new();
             self.table.populate_pv(&mut pv_moves, &mut state, depth);
+            self.pv.lock().unwrap().clone_from(&pv_moves);
             pv = pv_string::<E::G>(&pv_moves[..], &mut state);
         }
         if self.opts.verbose && !background {
@@ -346,6 +352,7 @@ pub struct ParallelYbw<E: Evaluator> {
     table: Arc<LockfreeTable<<E::G as Game>::M>>,
     //move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
+    principal_variation: Vec<<E::G as Game>::M>,
     eval: E,
 
     thread_pool: rayon::ThreadPool,
@@ -366,6 +373,7 @@ impl<E: Evaluator> ParallelYbw<E> {
             table,
             //move_pool: MovePool::<_>::default(),
             prev_value: 0,
+            principal_variation: Vec::new(),
             thread_pool: pool_builder.build().unwrap(),
             opts,
             ybw_opts,
@@ -404,8 +412,11 @@ where
                 timeout.clone(),
             );
             // Launch in threadpool and wait for result.
-            self.thread_pool
-                .install(|| negamaxer.iterative_search(s.clone(), self.max_depth, false))
+            let value_move = self
+                .thread_pool
+                .install(|| negamaxer.iterative_search(s.clone(), self.max_depth, false));
+            self.principal_variation = negamaxer.principal_variation();
+            value_move
         };
         if let Some((best_move, value)) = best_value_move {
             self.prev_value = value;
@@ -442,6 +453,10 @@ where
     fn set_max_depth(&mut self, depth: u8) {
         self.max_depth = depth;
         self.max_time = Duration::new(0, 0);
+    }
+
+    fn principal_variation(&self) -> Vec<<E::G as Game>::M> {
+        self.principal_variation.clone()
     }
 }
 
