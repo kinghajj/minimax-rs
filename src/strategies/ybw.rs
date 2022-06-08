@@ -405,11 +405,11 @@ where
 
         let best_value_move = {
             let negamaxer = ParallelNegamaxer::new(
-                self.opts.clone(),
-                self.ybw_opts.clone(),
+                self.opts,
+                self.ybw_opts,
                 self.eval.clone(),
                 self.table.clone(),
-                timeout.clone(),
+                timeout,
             );
             // Launch in threadpool and wait for result.
             let value_move = self
@@ -426,8 +426,8 @@ where
                 // Create a separate negamaxer to have a dedicated cancel
                 // signal, and to allow the negamaxer to outlive this scope.
                 let negamaxer = ParallelNegamaxer::new(
-                    self.opts.clone(),
-                    self.ybw_opts.clone(),
+                    self.opts,
+                    self.ybw_opts,
                     self.eval.clone(),
                     self.table.clone(),
                     self.background_cancel.clone(),

@@ -466,7 +466,7 @@ where
 {
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
-        let negamaxer = Negamaxer::new(table, eval, opts.clone());
+        let negamaxer = Negamaxer::new(table, eval, opts);
         IterativeSearch {
             max_depth: 99,
             max_time: Duration::from_secs(5),

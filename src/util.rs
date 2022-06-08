@@ -117,7 +117,8 @@ where
         let count = perft_recurse::<G>(&mut pool, state, depth, single_thread_cutoff);
         let dur = start.elapsed();
         let rate = count as f64 / dur.as_secs_f64() / 1000.0;
-        println!("{:>5} {:>15} {:>11} {:>11.1}", depth, count, format!("{:.1?}", dur), rate);
+        let time = format!("{:.1?}", dur);
+        println!("{:>5} {:>15} {:>11} {:>11.1}", depth, count, time, rate);
         counts.push(count);
     }
     counts

@@ -289,7 +289,7 @@ where
         for iter in 1..num_threads {
             let table2 = table.clone();
             let eval2 = eval.clone();
-            let opts2 = opts.clone();
+            let opts2 = opts;
             let signal2 = signal.clone();
             let stats2 = stats.clone();
             let extra_depth = if smp_opts.differing_depths { iter as u8 & 1 } else { 0 };
@@ -303,7 +303,7 @@ where
                 helper.process();
             });
         }
-        let negamaxer = Negamaxer::new(table.clone(), eval, opts.clone());
+        let negamaxer = Negamaxer::new(table.clone(), eval, opts);
         LazySmp {
             max_depth: 99,
             max_time: Duration::from_secs(5),
@@ -392,7 +392,7 @@ where
                     alpha = WORST_EVAL;
                 }
                 let beta = self.prev_value.saturating_add(window);
-                self.signal.new_search(&s, depth, alpha, beta);
+                self.signal.new_search(s, depth, alpha, beta);
 
                 if self
                     .negamaxer
@@ -419,7 +419,7 @@ where
                 }
             }
 
-            self.signal.new_search(&s, depth, WORST_EVAL, BEST_EVAL);
+            self.signal.new_search(s, depth, WORST_EVAL, BEST_EVAL);
 
             let value = self.negamaxer.search_and_reorder(&mut s_clone, &mut moves, depth);
             if value.is_none() {
