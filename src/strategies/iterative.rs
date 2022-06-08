@@ -480,21 +480,6 @@ where
         }
     }
 
-    /// Set the maximum depth to search. Disables the timeout.
-    /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: u8) {
-        self.max_depth = depth;
-        self.max_time = Duration::new(0, 0);
-    }
-
-    /// Set the maximum time to compute the best move. When the timeout is
-    /// hit, it returns the best move found of the previous full
-    /// iteration. Unlimited max depth.
-    pub fn set_timeout(&mut self, max_time: Duration) {
-        self.max_time = max_time;
-        self.max_depth = 99;
-    }
-
     /// Return a human-readable summary of the last move generation.
     pub fn stats(&self, s: &mut <E::G as Game>::S) -> String {
         let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
@@ -513,12 +498,6 @@ where
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         unclamp_value(self.prev_value)
-    }
-
-    /// Return what the engine considered to be the best sequence of moves
-    /// from both sides.
-    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
-        &self.pv[..]
     }
 
     fn mtdf(
@@ -648,5 +627,19 @@ where
             eprintln!("{}", self.stats(&mut s_clone));
         }
         best_move
+    }
+
+    fn set_timeout(&mut self, max_time: Duration) {
+        self.max_time = max_time;
+        self.max_depth = 99;
+    }
+
+    fn set_max_depth(&mut self, depth: u8) {
+        self.max_depth = depth;
+        self.max_time = Duration::new(0, 0);
+    }
+
+    fn principal_variation(&self) -> Vec<<E::G as Game>::M> {
+        self.pv.clone()
     }
 }

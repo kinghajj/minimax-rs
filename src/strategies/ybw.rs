@@ -373,29 +373,9 @@ impl<E: Evaluator> ParallelYbw<E> {
         }
     }
 
-    /// Set the maximum depth to search. Disables the timeout.
-    /// This can be changed between moves while reusing the transposition table.
-    pub fn set_max_depth(&mut self, depth: u8) {
-        self.max_depth = depth;
-        self.max_time = Duration::new(0, 0);
-    }
-
-    /// Set the maximum time to compute the best move. When the timeout is
-    /// hit, it returns the best move found of the previous full
-    /// iteration. Unlimited max depth.
-    pub fn set_timeout(&mut self, max_time: Duration) {
-        self.max_time = max_time;
-        self.max_depth = 99;
-    }
-
     #[doc(hidden)]
     pub fn root_value(&self) -> Evaluation {
         unclamp_value(self.prev_value)
-    }
-
-    // Unimplemented, just use verbose mode.
-    pub fn principal_variation(&self) -> &[<E::G as Game>::M] {
-        &[]
     }
 }
 
@@ -452,6 +432,16 @@ where
         } else {
             None
         }
+    }
+
+    fn set_timeout(&mut self, max_time: Duration) {
+        self.max_time = max_time;
+        self.max_depth = 99;
+    }
+
+    fn set_max_depth(&mut self, depth: u8) {
+        self.max_depth = depth;
+        self.max_time = Duration::new(0, 0);
     }
 }
 

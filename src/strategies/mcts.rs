@@ -154,12 +154,6 @@ impl MonteCarloTreeSearch {
         }
     }
 
-    /// Set the time limit per move.
-    pub fn set_timeout(&mut self, timeout: Duration) {
-        self.max_rollouts = 0;
-        self.max_time = timeout;
-    }
-
     /// Instead of a timeout, run this many rollouts to choose a move.
     pub fn set_max_rollouts(&mut self, rollouts: u32) {
         self.max_time = Duration::default();
@@ -299,5 +293,16 @@ where
 
         let exploration = 0.0; // Just get best node.
         root.best_child(exploration).map(|node| node.m.unwrap())
+    }
+
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.max_rollouts = 0;
+        self.max_time = timeout;
+    }
+
+    fn set_max_depth(&mut self, depth: u8) {
+        // Set some arbitrary function of rollouts.
+        self.max_time = Duration::default();
+        self.max_rollouts = depth as u32 * 100;
     }
 }

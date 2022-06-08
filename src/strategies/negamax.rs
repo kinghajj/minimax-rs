@@ -96,4 +96,8 @@ where
         self.prev_value = best;
         Some(best_move)
     }
+
+    fn set_max_depth(&mut self, depth: u8) {
+        self.max_depth = depth;
+    }
 }
