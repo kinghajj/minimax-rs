@@ -2,24 +2,26 @@
 
 use super::super::interface::*;
 use rand::seq::SliceRandom;
+use std::marker::PhantomData;
 
-pub struct Random {
+pub struct Random<G: Game> {
     rng: rand::rngs::ThreadRng,
+    game_type: PhantomData<G>,
 }
 
-impl Random {
-    pub fn new() -> Random {
-        Random { rng: rand::thread_rng() }
+impl<G: Game> Random<G> {
+    pub fn new() -> Self {
+        Self { rng: rand::thread_rng(), game_type: PhantomData }
     }
 }
 
-impl Default for Random {
+impl<G: Game> Default for Random<G> {
     fn default() -> Self {
         Random::new()
     }
 }
 
-impl<G: Game> Strategy<G> for Random
+impl<G: Game> Strategy<G> for Random<G>
 where
     G::M: Copy,
 {

@@ -3,6 +3,7 @@ use super::util::{timeout_signal, AtomicBox};
 
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::spawn;
@@ -135,22 +136,36 @@ impl MCTSOptions {
 
 /// A strategy that uses random playouts to explore the game tree to decide on the best move.
 /// This can be used without an Evaluator, just using the rules of the game.
-#[derive(Clone)]
-pub struct MonteCarloTreeSearch {
+pub struct MonteCarloTreeSearch<G: Game> {
     // TODO: Evaluator
     options: MCTSOptions,
     max_rollouts: u32,
     max_time: Duration,
     timeout: Arc<AtomicBool>,
+    game_type: PhantomData<G>,
 }
 
-impl MonteCarloTreeSearch {
+// derive is broken with PhantomData (https://github.com/rust-lang/rust/issues/26925)
+impl<G: Game> Clone for MonteCarloTreeSearch<G> {
+    fn clone(&self) -> Self {
+        Self {
+            options: self.options.clone(),
+            max_rollouts: self.max_rollouts,
+            max_time: self.max_time,
+            timeout: self.timeout.clone(),
+            game_type: PhantomData,
+        }
+    }
+}
+
+impl<G: Game> MonteCarloTreeSearch<G> {
     pub fn new(options: MCTSOptions) -> Self {
         Self {
             options,
             max_rollouts: 0,
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
+            game_type: PhantomData,
         }
     }
 
@@ -162,7 +177,7 @@ impl MonteCarloTreeSearch {
 
     // Returns score for this node. +1 for win of original player to move.
     // TODO: policy options: random, look 1 ahead for winning moves, BYO Evaluator.
-    fn rollout<G: Game>(&self, s: &G::S) -> i32
+    fn rollout(&self, s: &G::S) -> i32
     where
         G::S: Clone,
     {
@@ -194,9 +209,7 @@ impl MonteCarloTreeSearch {
     }
 
     // Explore the tree, make a new node, rollout, backpropagate.
-    fn simulate<G: Game>(
-        &self, node: &Node<G::M>, state: &mut G::S, mut force_rollout: bool,
-    ) -> Option<i32>
+    fn simulate(&self, node: &Node<G::M>, state: &mut G::S, mut force_rollout: bool) -> Option<i32>
     where
         G::S: Clone,
     {
@@ -204,7 +217,7 @@ impl MonteCarloTreeSearch {
             return None;
         }
         if force_rollout {
-            return node.update_stats(self.rollout::<G>(state));
+            return node.update_stats(self.rollout(state));
         }
 
         let expansion = match node.expansion.get() {
@@ -213,7 +226,7 @@ impl MonteCarloTreeSearch {
                 // This is a leaf node.
                 if node.visits.load(Ordering::SeqCst) < self.options.rollouts_before_expanding {
                     // Just rollout from here.
-                    return node.update_stats(self.rollout::<G>(state));
+                    return node.update_stats(self.rollout(state));
                 } else {
                     // Expand this node, and force a rollout when we recurse.
                     force_rollout = true;
@@ -234,7 +247,7 @@ impl MonteCarloTreeSearch {
         let next = node.best_child(1.).unwrap();
         let m = next.m.as_ref().unwrap();
         m.apply(state);
-        let result = -self.simulate::<G>(next, state, force_rollout)?;
+        let result = -self.simulate(next, state, force_rollout)?;
         m.undo(state);
 
         // Backpropagate.
@@ -242,8 +255,9 @@ impl MonteCarloTreeSearch {
     }
 }
 
-impl<G: Game> Strategy<G> for MonteCarloTreeSearch
+impl<G: Game> Strategy<G> for MonteCarloTreeSearch<G>
 where
+    G: Send + 'static,
     G::S: Clone + Send + 'static,
     G::M: Copy + Send + Sync + 'static,
 {
@@ -271,7 +285,7 @@ where
                 let mcts = self.clone();
                 spawn(move || {
                     for _ in 0..rollouts_per_thread {
-                        if mcts.simulate::<G>(&node, &mut state, false).is_none() {
+                        if mcts.simulate(&node, &mut state, false).is_none() {
                             break;
                         }
                     }
@@ -281,7 +295,7 @@ where
 
         let mut state = s.clone();
         for _ in 0..rollouts_per_thread + extra {
-            if self.simulate::<G>(&root, &mut state, false).is_none() {
+            if self.simulate(&root, &mut state, false).is_none() {
                 break;
             }
         }
