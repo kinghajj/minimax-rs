@@ -1,10 +1,12 @@
 //! Utility functions for testing, and tests.
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 extern crate rayon;
 
 use super::interface;
 use super::interface::{Game, Move};
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use rayon::prelude::*;
 use std::default::Default;
 use std::time::Instant;
@@ -59,6 +61,7 @@ impl<M> MovePool<M> {
     }
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn perft_recurse<G: Game>(
     pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
 ) -> u64
@@ -98,6 +101,39 @@ where
                 perft_recurse::<G>(&mut pool2, &mut state2, depth - 1, single_thread_cutoff)
             })
             .sum()
+    };
+    pool.free(moves);
+    n
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn perft_recurse<G: Game>(
+    pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
+) -> u64
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
+    if depth == 0 {
+        return 1;
+    }
+    if G::get_winner(state).is_some() {
+        // Apparently perft rules only count positions at the target depth.
+        return 0;
+    }
+    let mut moves = pool.alloc();
+    G::generate_moves(state, &mut moves);
+    let n = if depth == 1 {
+        moves.len() as u64
+    } else {
+        // Single-thread recurse.
+        let mut count = 0;
+        for m in moves.iter() {
+            m.apply(state);
+            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
+            m.undo(state);
+        }
+        count
     };
     pool.free(moves);
     n

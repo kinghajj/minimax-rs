@@ -11,9 +11,14 @@ keywords = ["ai", "game", "minimax", "negamax"]
 license = "MIT"
 
 [dependencies]
-num_cpus = "1.0"
 rand = "0.8"
+
+[target.'cfg(not(all(target_arch="wasm32", target_os="unknown")))'.dependencies]
+num_cpus = "1.0"
 rayon = "^1.5"
+
+[target.'cfg(all(target_arch="wasm32", target_os="unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"]}
 
 [dev-dependencies]
 bencher = "0.1.5"
