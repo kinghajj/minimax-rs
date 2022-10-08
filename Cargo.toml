@@ -11,6 +11,7 @@ keywords = ["ai", "game", "minimax", "negamax"]
 license = "MIT"
 
 [dependencies]
+instant = { version = "0.1", features = ["wasm-bindgen"] }
 rand = "0.8"
 
 [target.'cfg(not(all(target_arch="wasm32", target_os="unknown")))'.dependencies]

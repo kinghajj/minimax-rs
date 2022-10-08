@@ -9,11 +9,12 @@ use super::super::util::*;
 use super::table::*;
 use super::util::*;
 
+use instant::Instant;
 use rand::prelude::SliceRandom;
 use std::cmp::max;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 /// Strategies for when to overwrite entries in the transition table.
