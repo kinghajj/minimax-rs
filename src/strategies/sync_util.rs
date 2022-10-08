@@ -1,4 +1,19 @@
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::Arc;
+use std::thread::{sleep, spawn};
+use std::time::Duration;
+
+pub(super) fn timeout_signal(dur: Duration) -> Arc<AtomicBool> {
+    // Theoretically we could include an async runtime to do this and use
+    // fewer threads, but the stdlib implementation is only a few lines...
+    let signal = Arc::new(AtomicBool::new(false));
+    let signal2 = signal.clone();
+    spawn(move || {
+        sleep(dur);
+        signal2.store(true, Ordering::Relaxed);
+    });
+    signal
+}
 
 // An insert-only lock-free Option<Box<T>>
 pub(super) struct AtomicBox<T>(AtomicPtr<T>);

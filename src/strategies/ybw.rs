@@ -9,6 +9,7 @@ extern crate rayon;
 
 use super::super::interface::*;
 use super::iterative::IterativeOptions;
+use super::sync_util::timeout_signal;
 use super::table::*;
 use super::util::*;
 

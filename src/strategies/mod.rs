@@ -11,6 +11,6 @@ pub mod random;
 pub mod ybw;
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-mod atomic_box;
+mod sync_util;
 mod table;
 mod util;

@@ -6,13 +6,17 @@
 
 use super::super::interface::*;
 use super::super::util::*;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use super::sync_util::timeout_signal;
 use super::table::*;
 use super::util::*;
 
 use instant::Instant;
 use rand::prelude::SliceRandom;
 use std::cmp::max;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -227,7 +231,12 @@ impl IterativeOptions {
 }
 
 pub(super) struct Negamaxer<E: Evaluator, T> {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     timeout: Arc<AtomicBool>,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    deadline: Instant,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    timeout_counter: u32,
     pub(super) table: T,
     move_pool: MovePool<<E::G as Game>::M>,
     eval: E,
@@ -248,7 +257,12 @@ where
 {
     pub(super) fn new(table: T, eval: E, opts: IterativeOptions) -> Self {
         Self {
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
             timeout: Arc::new(AtomicBool::new(false)),
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            deadline: Instant::now(),
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            timeout_counter: 1000,
             table,
             eval,
             move_pool: MovePool::default(),
@@ -259,21 +273,55 @@ where
         }
     }
 
-    pub(super) fn set_timeout(&mut self, timeout: Arc<AtomicBool>) {
-        self.timeout = timeout;
-    }
-
     fn reset_stats(&mut self) {
         self.nodes_explored = 0;
         self.total_generate_move_calls = 0;
         self.total_generated_moves = 0;
     }
 
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    pub(super) fn set_timeout(&mut self, timeout: Arc<AtomicBool>) {
+        self.timeout = timeout;
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    fn reset_timeout(&mut self, duration: Duration) {
+        self.timeout_counter = if duration == Duration::new(0, 0) {
+            // Too high counter that never hits the maximum.
+            1000
+        } else {
+            0
+        };
+        self.deadline = Instant::now() + duration;
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    fn reset_timeout(&mut self, duration: Duration) {
+        self.set_timeout(if duration == Duration::new(0, 0) {
+            Arc::new(AtomicBool::new(false))
+        } else {
+            timeout_signal(duration)
+        });
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    fn timeout_check(&mut self) -> bool {
+        self.timeout_counter += 1;
+        if self.timeout_counter != 100 {
+            return false;
+        }
+        self.timeout_counter = 0;
+        Instant::now() >= self.deadline
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    fn timeout_check(&mut self) -> bool {
+        self.timeout.load(Ordering::Relaxed)
+    }
+
     // Negamax only among noisy moves.
     fn noisy_negamax(
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
     ) -> Option<Evaluation> {
-        if self.timeout.load(Ordering::Relaxed) {
+        if self.timeout_check() {
             return None;
         }
         if let Some(winner) = E::G::get_winner(s) {
@@ -310,7 +358,7 @@ where
         &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
         mut beta: Evaluation,
     ) -> Option<Evaluation> {
-        if self.timeout.load(Ordering::Relaxed) {
+        if self.timeout_check() {
             return None;
         }
 
@@ -538,11 +586,7 @@ where
         self.actual_depth = 0;
         let start_time = Instant::now();
         // Start timer if configured.
-        self.negamaxer.set_timeout(if self.max_time == Duration::new(0, 0) {
-            Arc::new(AtomicBool::new(false))
-        } else {
-            timeout_signal(self.max_time)
-        });
+        self.negamaxer.reset_timeout(self.max_time);
 
         let root_hash = s.zobrist_hash();
         let mut s_clone = s.clone();

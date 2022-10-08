@@ -1,10 +1,5 @@
 use super::super::interface::*;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::{sleep, spawn};
-use std::time::Duration;
-
 // For values near winning and losing values, push them slightly closer to zero.
 // A win in 3 moves (BEST-3) will be chosen over a win in 5 moves (BEST-5).
 // A loss in 5 moves (WORST+5) will be chosen over a loss in 3 moves (WORST+3).
@@ -27,18 +22,6 @@ pub(super) fn unclamp_value(value: Evaluation) -> Evaluation {
     } else {
         value
     }
-}
-
-pub(super) fn timeout_signal(dur: Duration) -> Arc<AtomicBool> {
-    // Theoretically we could include an async runtime to do this and use
-    // fewer threads, but the stdlib implementation is only a few lines...
-    let signal = Arc::new(AtomicBool::new(false));
-    let signal2 = signal.clone();
-    spawn(move || {
-        sleep(dur);
-        signal2.store(true, Ordering::Relaxed);
-    });
-    signal
 }
 
 // Return a unique id for humans for this move.

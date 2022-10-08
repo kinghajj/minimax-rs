@@ -1,6 +1,5 @@
 use super::super::interface::*;
-use super::atomic_box::AtomicBox;
-use super::util::timeout_signal;
+use super::sync_util::*;
 
 use rand::seq::SliceRandom;
 use rand::Rng;

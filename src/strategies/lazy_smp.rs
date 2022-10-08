@@ -10,6 +10,7 @@ extern crate rand;
 
 use super::super::interface::*;
 use super::iterative::{IterativeOptions, Negamaxer};
+use super::sync_util::timeout_signal;
 use super::table::*;
 use super::util::*;
 
