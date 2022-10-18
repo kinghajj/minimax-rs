@@ -90,6 +90,29 @@ where
         self.pv.lock().unwrap().clone()
     }
 
+    fn null_move_check(
+        &self, s: &mut <E::G as Game>::S, depth: u8, beta: Evaluation,
+    ) -> Option<Evaluation> {
+        if let (Some(depth_reduction), Some(null_move)) =
+            (self.opts.null_move_depth, E::G::null_move(s))
+        {
+            // Default to a minimum of depth=1 after null moving.
+            if depth > depth_reduction &&
+	    // If the position already seems pretty awesome.
+	      self.eval.evaluate(s) >= beta
+            {
+                // If we just pass and let the opponent play this position (at reduced depth),
+                null_move.apply(s);
+                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
+                null_move.undo(s);
+                // is the result still so good that we shouldn't bother with a full search?
+                return Some(value);
+            }
+        }
+        // If we didn't check, return a low value that won't trigger beta cutoff.
+        Some(WORST_EVAL)
+    }
+
     // Negamax only among noisy moves.
     fn noisy_negamax(
         &self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, beta: Evaluation,
@@ -158,21 +181,8 @@ where
             return Some(value);
         }
 
-        if let (Some(depth_reduction), Some(null_move)) =
-            (self.opts.null_move_depth, E::G::null_move(s))
-        {
-            if depth >= depth_reduction {
-                // If we just pass and let the opponent play this position (at reduced depth),
-                null_move.apply(s);
-                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
-                null_move.undo(s);
-                // is the result still so good that we shouldn't bother with a full search?
-                if value >= beta {
-                    // This value was at a fake depth, so don't assume too
-                    // much about the lowerbound.
-                    return Some(beta);
-                }
-            }
+        if self.null_move_check(s, depth, beta)? >= beta {
+            return Some(beta);
         }
 
         //let mut moves = self.move_pool.alloc();
