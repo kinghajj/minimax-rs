@@ -122,6 +122,7 @@ pub struct IterativeOptions {
     pub(super) strategy: Replacement,
     pub(super) null_window_search: bool,
     pub(super) null_move_depth: Option<u8>,
+    pub(super) singular_extension: bool,
     pub(super) aspiration_window: Option<Evaluation>,
     pub(super) mtdf: bool,
     pub(super) step_increment: u8,
@@ -137,6 +138,7 @@ impl IterativeOptions {
             strategy: Replacement::TwoTier,
             null_window_search: true,
             null_move_depth: None,
+            singular_extension: false,
             aspiration_window: None,
             mtdf: false,
             step_increment: 1,
@@ -180,6 +182,13 @@ impl IterativeOptions {
     /// the tree at a depth reduced by this amount.
     pub fn with_null_move_depth(mut self, depth_reduction: u8) -> Self {
         self.null_move_depth = Some(depth_reduction);
+        self
+    }
+
+    /// Whether to extend a branch of the search (by 1) if there is only one
+    /// move (or only one reasonable move).
+    pub fn with_singular_extension(mut self) -> Self {
+        self.singular_extension = true;
         self
     }
 
@@ -378,7 +387,7 @@ where
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     pub(super) fn negamax(
-        &mut self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation,
+        &mut self, s: &mut <E::G as Game>::S, mut depth: u8, mut alpha: Evaluation,
         mut beta: Evaluation,
     ) -> Option<Evaluation> {
         if self.timeout_check() {
@@ -414,6 +423,11 @@ where
         if moves.is_empty() {
             self.move_pool.free(moves);
             return Some(WORST_EVAL);
+        }
+
+        // TODO: Also do a pre-search to look for moves much better than others.
+        if self.opts.singular_extension && moves.len() == 1 {
+            depth += 1;
         }
 
         // Reorder moves.
