@@ -80,6 +80,14 @@ pub trait Move {
     fn notation(&self, _state: &<Self::G as Game>::S) -> Option<String> {
         None
     }
+    /// Return a small index for this move for position-independent tables.
+    fn table_index(&self) -> u16 {
+        0
+    }
+    /// Maximum index value.
+    fn max_table_index() -> u16 {
+        0
+    }
 }
 
 /// The result of playing a game until it finishes.

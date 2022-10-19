@@ -128,6 +128,8 @@ pub struct IterativeOptions {
     pub(super) step_increment: u8,
     pub(super) max_quiescence_depth: u8,
     pub(super) min_reorder_moves_depth: u8,
+    pub(super) countermove_table: bool,
+    pub(super) countermove_history_table: bool,
     pub(super) verbose: bool,
 }
 
@@ -144,6 +146,8 @@ impl IterativeOptions {
             step_increment: 1,
             max_quiescence_depth: 0,
             min_reorder_moves_depth: u8::MAX,
+            countermove_table: false,
+            countermove_history_table: false,
             verbose: false,
         }
     }
@@ -232,6 +236,21 @@ impl IterativeOptions {
         self
     }
 
+    /// Enable the countermove table, which reorders to the front moves that
+    /// have worked to counter the previous move in other branches.
+    pub fn with_countermoves(mut self) -> Self {
+        self.countermove_table = true;
+        self
+    }
+
+    /// Enable the countermove history table. It keeps a counter for moves
+    /// that have caused beta cutoffs in other branches, and reorders moves
+    /// based on this counter.
+    pub fn with_countermove_history(mut self) -> Self {
+        self.countermove_history_table = true;
+        self
+    }
+
     /// Enable verbose print statements of the ongoing performance of the search.
     pub fn verbose(mut self) -> Self {
         self.verbose = true;
@@ -247,6 +266,7 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     timeout_counter: u32,
     pub(super) table: T,
+    pub(super) countermoves: CounterMoves<<E::G as Game>::M>,
     move_pool: MovePool<<E::G as Game>::M>,
     eval: E,
 
@@ -273,6 +293,7 @@ where
             #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
             timeout_counter: 1000,
             table,
+            countermoves: CounterMoves::new(opts.countermove_table, opts.countermove_history_table),
             eval,
             move_pool: MovePool::default(),
             opts,
@@ -339,7 +360,7 @@ where
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
                 null_move.apply(s);
-                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
+                let value = -self.negamax(s, None, depth - depth_reduction, -beta, -beta + 1)?;
                 null_move.undo(s);
                 // is the result still so good that we shouldn't bother with a full search?
                 return Some(value);
@@ -387,8 +408,8 @@ where
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     pub(super) fn negamax(
-        &mut self, s: &mut <E::G as Game>::S, mut depth: u8, mut alpha: Evaluation,
-        mut beta: Evaluation,
+        &mut self, s: &mut <E::G as Game>::S, prev_move: Option<<E::G as Game>::M>, mut depth: u8,
+        mut alpha: Evaluation, mut beta: Evaluation,
     ) -> Option<Evaluation> {
         if self.timeout_check() {
             return None;
@@ -434,14 +455,9 @@ where
         if depth >= self.opts.min_reorder_moves_depth {
             self.eval.reorder_moves(s, &mut moves);
         }
+        self.countermoves.reorder(prev_move, &mut moves);
         if let Some(good) = good_move {
-            // Move predicted good move to the front.
-            for i in 0..moves.len() {
-                if moves[i] == good {
-                    moves[0..i + 1].rotate_right(1);
-                    break;
-                }
-            }
+            move_to_front(good, &mut moves);
         }
 
         let mut best = WORST_EVAL;
@@ -450,15 +466,15 @@ where
         for &m in moves.iter() {
             m.apply(s);
             let value = if null_window {
-                let probe = -self.negamax(s, depth - 1, -alpha - 1, -alpha)?;
+                let probe = -self.negamax(s, Some(m), depth - 1, -alpha - 1, -alpha)?;
                 if probe > alpha && probe < beta {
                     // Full search fallback.
-                    -self.negamax(s, depth - 1, -beta, -probe)?
+                    -self.negamax(s, Some(m), depth - 1, -beta, -probe)?
                 } else {
                     probe
                 }
             } else {
-                -self.negamax(s, depth - 1, -beta, -alpha)?
+                -self.negamax(s, Some(m), depth - 1, -beta, -alpha)?
             };
             m.undo(s);
             if value > best {
@@ -472,6 +488,7 @@ where
                 null_window = self.opts.null_window_search;
             }
             if alpha >= beta {
+                self.countermoves.update(prev_move, m);
                 break;
             }
         }
@@ -492,7 +509,7 @@ where
         }
         let alpha = max(target.saturating_sub(window), WORST_EVAL);
         let beta = target.saturating_add(window);
-        self.negamax(s, depth, alpha, beta)?;
+        self.negamax(s, None, depth, alpha, beta)?;
         Some(())
     }
 
@@ -503,7 +520,7 @@ where
         let beta = BEST_EVAL;
         for value_move in moves.iter_mut() {
             value_move.m.apply(s);
-            let value = -self.negamax(s, depth - 1, -beta, -alpha)?;
+            let value = -self.negamax(s, Some(value_move.m), depth - 1, -beta, -alpha)?;
             value_move.m.undo(s);
 
             alpha = max(alpha, value);
@@ -586,7 +603,7 @@ where
                     depth, beta, lowerbound, upperbound
                 );
             }
-            guess = self.negamaxer.negamax(s, depth, beta - 1, beta)?;
+            guess = self.negamaxer.negamax(s, None, depth, beta - 1, beta)?;
             if guess < beta {
                 upperbound = guess;
             } else {
@@ -604,6 +621,7 @@ where
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
         self.negamaxer.table.advance_generation();
+        self.negamaxer.countermoves.advance_generation(E::G::null_move(s));
         // Reset stats.
         self.nodes_explored.clear();
         self.negamaxer.reset_stats();

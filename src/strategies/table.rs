@@ -1,4 +1,4 @@
-use super::util::unclamp_value;
+use super::util::{move_to_front, unclamp_value};
 use crate::interface::*;
 use std::cmp::{max, min};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
@@ -374,5 +374,64 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
 
     fn concurrent_advance_generation(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+// A single-threaded utility to find moves that have done well in other branches.
+pub(super) struct CounterMoves<M: Move> {
+    countermove_enabled: bool,
+    history_enabled: bool,
+    // For a given move index, which followup most recently led to a beta cutoff?
+    countermove_table: Vec<M>,
+    // For each move index, how many beta cutoffs has it produced?
+    history_table: Vec<u32>,
+}
+
+impl<M: Move + Eq + Copy> CounterMoves<M> {
+    pub(super) fn new(countermove_enabled: bool, history_enabled: bool) -> Self {
+        Self {
+            countermove_enabled,
+            history_enabled,
+            countermove_table: Vec::new(),
+            history_table: Vec::new(),
+        }
+    }
+
+    pub(super) fn reorder(&self, prev: Option<M>, moves: &mut [M]) {
+        if !self.history_table.is_empty() {
+            // Stable sort to preserve previous orderings.
+            moves.sort_by_key(|m| !self.history_table[m.table_index() as usize]);
+        }
+        if let Some(prev) = prev {
+            if let Some(response) = self.countermove_table.get(prev.table_index() as usize) {
+                move_to_front(*response, moves);
+            }
+        }
+    }
+
+    pub(super) fn update(&mut self, prev: Option<M>, m: M) {
+        if let Some(prev) = prev {
+            if let Some(entry) = self.countermove_table.get_mut(prev.table_index() as usize) {
+                *entry = m;
+            }
+        }
+        if let Some(entry) = self.history_table.get_mut(m.table_index() as usize) {
+            *entry = 1u32.saturating_add(*entry);
+        }
+    }
+
+    pub(super) fn advance_generation(&mut self, null_move: Option<M>) {
+        // Lazily allocate tables
+        if self.countermove_enabled && self.countermove_table.is_empty() {
+            if let Some(m) = null_move {
+                self.countermove_table = vec![m; M::max_table_index() as usize + 1];
+            }
+        }
+        if self.history_enabled && self.history_table.is_empty() {
+            self.history_table = vec![0; M::max_table_index() as usize + 1];
+        }
+
+        // Partially degrade old values, to bias towards new data.
+        self.history_table.iter_mut().for_each(|n| *n >>= 1);
     }
 }

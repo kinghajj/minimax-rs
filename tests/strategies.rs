@@ -212,7 +212,10 @@ fn compare_plain_negamax() {
 // more parallelism in the parallel strategies.
 #[test]
 fn compare_deep_negamax() {
-    let opt = IterativeOptions::new().with_table_byte_size(64000);
+    let opt = IterativeOptions::new()
+        .with_table_byte_size(64000)
+        .with_countermoves()
+        .with_countermove_history();
     for iter in 0..10 {
         for max_depth in 1..10 {
             let b = generate_random_state(10);

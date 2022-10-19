@@ -62,6 +62,15 @@ where
     out
 }
 
+pub(super) fn move_to_front<M: Eq>(m: M, moves: &mut [M]) {
+    for i in 0..moves.len() {
+        if moves[i] == m {
+            moves[0..i + 1].rotate_right(1);
+            break;
+        }
+    }
+}
+
 // This exists to be wrapped in a mutex, because it didn't work when I tried a tuple.
 pub(super) struct ValueMove<M> {
     pub(super) value: Evaluation,

@@ -175,6 +175,7 @@ where
                 &mut beta,
             );
 
+            self.negamaxer.countermoves.advance_generation(E::G::null_move(&search.state));
             // Randomize the first level of moves.
             let mut moves = Vec::new();
             E::G::generate_moves(&search.state, &mut moves);
@@ -183,7 +184,7 @@ where
             for m in moves {
                 m.apply(&mut search.state);
                 if let Some(value) =
-                    self.negamaxer.negamax(&mut search.state, depth - 1, alpha, beta)
+                    self.negamaxer.negamax(&mut search.state, Some(m), depth - 1, alpha, beta)
                 {
                     alpha = max(alpha, -value);
                 } else {
