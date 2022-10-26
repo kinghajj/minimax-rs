@@ -22,9 +22,9 @@ use std::time::{Duration, Instant};
 /// Options to use for the parallel search engine.
 #[derive(Clone, Copy)]
 pub struct YbwOptions {
-    num_threads: Option<usize>,
+    pub num_threads: Option<usize>,
     serial_cutoff_depth: u8,
-    background_pondering: bool,
+    pub background_pondering: bool,
 }
 
 impl YbwOptions {
@@ -58,7 +58,7 @@ impl YbwOptions {
         self
     }
 
-    fn num_threads(self) -> usize {
+    pub fn num_threads(self) -> usize {
         self.num_threads.unwrap_or_else(num_cpus::get)
     }
 }

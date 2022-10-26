@@ -118,7 +118,7 @@ impl<M: Copy> Table<M> for TranspositionTable<M> {
 /// Options to use for the iterative search engines.
 #[derive(Clone, Copy)]
 pub struct IterativeOptions {
-    pub(super) table_byte_size: usize,
+    pub table_byte_size: usize,
     pub(super) strategy: Replacement,
     pub(super) null_window_search: bool,
     pub(super) null_move_depth: Option<u8>,
@@ -130,13 +130,13 @@ pub struct IterativeOptions {
     pub(super) min_reorder_moves_depth: u8,
     pub(super) countermove_table: bool,
     pub(super) countermove_history_table: bool,
-    pub(super) verbose: bool,
+    pub verbose: bool,
 }
 
 impl IterativeOptions {
     pub fn new() -> Self {
         IterativeOptions {
-            table_byte_size: 1_000_000,
+            table_byte_size: 1 << 20,
             strategy: Replacement::TwoTier,
             null_window_search: true,
             null_move_depth: None,
