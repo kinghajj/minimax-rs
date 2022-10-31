@@ -1,0 +1,8 @@
+[package]
+name = "chess-minimax-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chess = "3.2"
+minimax = { path = "../.." }
