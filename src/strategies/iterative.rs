@@ -634,7 +634,6 @@ where
         let mut s_clone = s.clone();
         let mut best_move = None;
         let mut interval_start;
-        let mut maxxed = false;
         // Store the moves so they can be reordered every iteration.
         let mut moves = Vec::new();
         E::G::generate_moves(&s_clone, &mut moves);
@@ -662,7 +661,7 @@ where
                         // Timeout.
                         break;
                     }
-                    if self.opts.verbose && !maxxed {
+                    if self.opts.verbose {
                         if let Some(entry) = self.negamaxer.table.lookup(root_hash) {
                             let end = Instant::now();
                             let interval = end - interval_start;
@@ -687,7 +686,7 @@ where
             let entry = self.negamaxer.table.lookup(root_hash).unwrap();
             best_move = entry.best_move;
 
-            if self.opts.verbose && !maxxed {
+            if self.opts.verbose {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
                     "Iterative fullsearch depth{:>2} took{:>5}ms; value{:>6} bestmove={}",
@@ -696,9 +695,6 @@ where
                     entry.value_string(),
                     move_id::<E::G>(&mut s_clone, best_move)
                 );
-                if unclamp_value(entry.value).abs() == BEST_EVAL {
-                    maxxed = true;
-                }
             }
 
             self.actual_depth = max(self.actual_depth, depth);
@@ -707,6 +703,9 @@ where
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
             self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone);
+            if unclamp_value(entry.value).abs() == BEST_EVAL {
+                break;
+            }
         }
         self.wall_time = start_time.elapsed();
         if self.opts.verbose {

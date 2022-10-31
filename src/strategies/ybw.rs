@@ -299,7 +299,6 @@ where
         let mut best_move = None;
         let mut best_value = 0;
         let mut interval_start;
-        let mut maxxed = false;
         let mut pv = String::new();
 
         let mut depth = max_depth % self.opts.step_increment;
@@ -327,7 +326,7 @@ where
             best_move = entry.best_move;
             best_value = entry.value;
 
-            if self.opts.verbose && !background && !maxxed {
+            if self.opts.verbose && !background {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
                     "Ybw search (threads={}) depth{:>2} took{:>5}ms; returned{:>5}; bestmove {}",
@@ -337,9 +336,6 @@ where
                     entry.value_string(),
                     move_id::<E::G>(&mut state, best_move)
                 );
-                if unclamp_value(entry.value).abs() == BEST_EVAL {
-                    maxxed = true;
-                }
             }
 
             depth += self.opts.step_increment;
@@ -347,6 +343,9 @@ where
             self.table.populate_pv(&mut pv_moves, &mut state);
             self.pv.lock().unwrap().clone_from(&pv_moves);
             pv = pv_string::<E::G>(&pv_moves[..], &mut state);
+            if unclamp_value(entry.value).abs() == BEST_EVAL {
+                break;
+            }
         }
         if self.opts.verbose && !background {
             eprintln!("Principal variation: {}", pv);
