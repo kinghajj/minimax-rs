@@ -22,6 +22,12 @@ impl Board {
     }
 }
 
+impl minimax::Zobrist for Board {
+    fn zobrist_hash(&self) -> u64 {
+        self.board().get_hash()
+    }
+}
+
 impl minimax::Game for Chess {
     type S = Board;
     type M = ChessMove;
@@ -49,6 +55,10 @@ impl minimax::Move for ChessMove {
 
     fn undo(&self, b: &mut Board) {
         b.history.pop();
+    }
+
+    fn notation(&self, _b: &Board) -> Option<String> {
+        Some(format!("{}", self.0))
     }
 }
 
@@ -84,7 +94,9 @@ impl minimax::Evaluator for Evaluator {
 
 fn main() {
     let mut b = Board::new();
-    let mut strategy = minimax::Negamax::new(Evaluator::default(), 5);
+    let opts = minimax::IterativeOptions::new().verbose();
+    let mut strategy = minimax::IterativeSearch::new(Evaluator::default(), opts);
+    strategy.set_timeout(std::time::Duration::from_secs(1));
     while Chess::get_winner(&b).is_none() {
         println!("{}", b.board());
         match strategy.choose_move(&b) {
