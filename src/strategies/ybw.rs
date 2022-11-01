@@ -8,8 +8,9 @@
 extern crate rayon;
 
 use super::super::interface::*;
+use super::super::util::*;
 use super::iterative::IterativeOptions;
-use super::sync_util::timeout_signal;
+use super::sync_util::{timeout_signal, ThreadLocal};
 use super::table::*;
 use super::util::*;
 
@@ -70,6 +71,7 @@ struct ParallelNegamaxer<E: Evaluator> {
     ybw_opts: YbwOptions,
     timeout: Arc<AtomicBool>,
     // TODO: stats
+    move_pool: ThreadLocal<MovePool<<E::G as Game>::M>>,
     pv: Mutex<Vec<<E::G as Game>::M>>,
 }
 
@@ -82,8 +84,17 @@ where
     fn new(
         opts: IterativeOptions, ybw_opts: YbwOptions, eval: E,
         table: Arc<LockfreeTable<<E::G as Game>::M>>, timeout: Arc<AtomicBool>,
+        thread_pool: &rayon::ThreadPool,
     ) -> Self {
-        Self { table, eval, opts, ybw_opts, timeout, pv: Mutex::new(Vec::new()) }
+        Self {
+            table,
+            eval,
+            opts,
+            ybw_opts,
+            timeout,
+            move_pool: ThreadLocal::new(thread_pool),
+            pv: Mutex::new(Vec::new()),
+        }
     }
 
     fn principal_variation(&self) -> Vec<<E::G as Game>::M> {
@@ -127,11 +138,11 @@ where
             return Some(self.eval.evaluate(s));
         }
 
-        //let mut moves = self.move_pool.alloc();
         let mut moves = Vec::new();
+        self.move_pool.local_do(|pool| moves = pool.alloc());
         self.eval.generate_noisy_moves(s, &mut moves);
         if moves.is_empty() {
-            //self.move_pool.free(moves);
+            self.move_pool.local_do(|pool| pool.free(moves));
             return Some(self.eval.evaluate(s));
         }
 
@@ -146,7 +157,7 @@ where
                 break;
             }
         }
-        //self.move_pool.free(moves);
+        self.move_pool.local_do(|pool| pool.free(moves));
         Some(best)
     }
 
@@ -185,13 +196,13 @@ where
             return Some(beta);
         }
 
-        //let mut moves = self.move_pool.alloc();
         let mut moves = Vec::new();
+        self.move_pool.local_do(|pool| moves = pool.alloc());
         E::G::generate_moves(s, &mut moves);
         //self.total_generate_move_calls += 1;
         //self.total_generated_moves += moves.len() as u64;
         if moves.is_empty() {
-            //self.move_pool.free(moves);
+            self.move_pool.local_do(|pool| pool.free(moves));
             return Some(WORST_EVAL);
         }
         let first_move = good_move.unwrap_or(moves[0]);
@@ -287,7 +298,7 @@ where
         };
 
         self.table.concurrent_update(hash, alpha_orig, beta, depth, best, best_move);
-        //self.move_pool.free(moves);
+        self.move_pool.local_do(|pool| pool.free(moves));
         Some(clamp_value(best))
     }
 
@@ -360,7 +371,6 @@ pub struct ParallelYbw<E: Evaluator> {
 
     background_cancel: Arc<AtomicBool>,
     table: Arc<LockfreeTable<<E::G as Game>::M>>,
-    //move_pool: MovePool<<E::G as Game>::M>,
     prev_value: Evaluation,
     principal_variation: Vec<<E::G as Game>::M>,
     eval: E,
@@ -381,7 +391,6 @@ impl<E: Evaluator> ParallelYbw<E> {
             max_time: Duration::from_secs(5),
             background_cancel: Arc::new(AtomicBool::new(false)),
             table,
-            //move_pool: MovePool::<_>::default(),
             prev_value: 0,
             principal_variation: Vec::new(),
             thread_pool: pool_builder.build().unwrap(),
@@ -420,6 +429,7 @@ where
                 self.eval.clone(),
                 self.table.clone(),
                 timeout,
+                &self.thread_pool,
             );
             // Launch in threadpool and wait for result.
             let value_move = self
@@ -441,6 +451,7 @@ where
                     self.eval.clone(),
                     self.table.clone(),
                     self.background_cancel.clone(),
+                    &self.thread_pool,
                 );
                 let mut state = s.clone();
                 best_move.apply(&mut state);

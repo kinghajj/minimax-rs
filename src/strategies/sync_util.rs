@@ -66,3 +66,31 @@ fn test_atomic_box() {
     b.try_set(Box::new(4));
     assert_eq!(Some(&3), b.get());
 }
+
+pub(super) struct ThreadLocal<T> {
+    // Our owned reference to all the locals.
+    _locals: Vec<T>,
+    // Mutable reference from which each thread finds its local.
+    ptr: *mut T,
+}
+
+// Values are only accessed from their individual threads and references do not leak.
+unsafe impl<T> Send for ThreadLocal<T> {}
+unsafe impl<T> Sync for ThreadLocal<T> {}
+
+impl<T: Send + Default> ThreadLocal<T> {
+    pub(super) fn new(pool: &rayon::ThreadPool) -> Self {
+        let mut locals = Vec::new();
+        for _ in 0..pool.current_num_threads() {
+            locals.push(T::default());
+        }
+        let ptr = locals.as_mut_ptr();
+        Self { _locals: locals, ptr }
+    }
+
+    pub(super) fn local_do<F: FnOnce(&mut T)>(&self, f: F) {
+        if let Some(index) = rayon::current_thread_index() {
+            f(unsafe { self.ptr.add(index).as_mut().unwrap() });
+        }
+    }
+}
