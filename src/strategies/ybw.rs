@@ -72,6 +72,7 @@ struct ParallelNegamaxer<E: Evaluator> {
     timeout: Arc<AtomicBool>,
     // TODO: stats
     move_pool: ThreadLocal<MovePool<<E::G as Game>::M>>,
+    countermoves: ThreadLocal<CounterMoves<<E::G as Game>::M>>,
     pv: Mutex<Vec<<E::G as Game>::M>>,
 }
 
@@ -92,7 +93,11 @@ where
             opts,
             ybw_opts,
             timeout,
-            move_pool: ThreadLocal::new(thread_pool),
+            move_pool: ThreadLocal::new(MovePool::default, thread_pool),
+            countermoves: ThreadLocal::new(
+                || CounterMoves::new(opts.countermove_table, opts.countermove_history_table),
+                thread_pool,
+            ),
             pv: Mutex::new(Vec::new()),
         }
     }
@@ -114,7 +119,7 @@ where
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
                 null_move.apply(s);
-                let value = -self.negamax(s, depth - depth_reduction, -beta, -beta + 1)?;
+                let value = -self.negamax(s, None, depth - depth_reduction, -beta, -beta + 1)?;
                 null_move.undo(s);
                 // is the result still so good that we shouldn't bother with a full search?
                 return Some(value);
@@ -163,7 +168,8 @@ where
 
     // Recursively compute negamax on the game state. Returns None if it hits the timeout.
     fn negamax(
-        &self, s: &mut <E::G as Game>::S, depth: u8, mut alpha: Evaluation, mut beta: Evaluation,
+        &self, s: &mut <E::G as Game>::S, prev_move: Option<<E::G as Game>::M>, depth: u8,
+        mut alpha: Evaluation, mut beta: Evaluation,
     ) -> Option<Evaluation>
     where
         <E::G as Game>::S: Clone + Zobrist + Send + Sync,
@@ -205,11 +211,21 @@ where
             self.move_pool.local_do(|pool| pool.free(moves));
             return Some(WORST_EVAL);
         }
-        let first_move = good_move.unwrap_or(moves[0]);
+
+        // Reorder moves.
+        if depth >= self.opts.min_reorder_moves_depth {
+            self.eval.reorder_moves(s, &mut moves);
+        }
+        self.countermoves.local_do(|cm| cm.reorder(prev_move, &mut moves));
+        if let Some(good) = good_move {
+            move_to_front(good, &mut moves);
+        }
+
+        let first_move = moves[0];
 
         // Evaluate first move serially.
         first_move.apply(s);
-        let initial_value = -self.negamax(s, depth - 1, -beta, -alpha)?;
+        let initial_value = -self.negamax(s, Some(first_move), depth - 1, -beta, -alpha)?;
         first_move.undo(s);
         alpha = max(alpha, initial_value);
         let (best, best_move) = if alpha >= beta {
@@ -220,21 +236,18 @@ where
             let mut best = initial_value;
             let mut best_move = first_move;
             let mut null_window = false;
-            for &m in moves.iter() {
-                if m == first_move {
-                    continue;
-                }
+            for &m in moves[1..].iter() {
                 m.apply(s);
                 let value = if null_window {
-                    let probe = -self.negamax(s, depth - 1, -alpha - 1, -alpha)?;
+                    let probe = -self.negamax(s, Some(m), depth - 1, -alpha - 1, -alpha)?;
                     if probe > alpha && probe < beta {
                         // Full search fallback.
-                        -self.negamax(s, depth - 1, -beta, -probe)?
+                        -self.negamax(s, Some(m), depth - 1, -beta, -probe)?
                     } else {
                         probe
                     }
                 } else {
-                    -self.negamax(s, depth - 1, -beta, -alpha)?
+                    -self.negamax(s, Some(m), depth - 1, -beta, -alpha)?
                 };
                 m.undo(s);
                 if value > best {
@@ -248,6 +261,7 @@ where
                     null_window = self.opts.null_window_search;
                 }
                 if alpha >= beta {
+                    self.countermoves.local_do(|cm| cm.update(prev_move, m));
                     break;
                 }
             }
@@ -256,7 +270,7 @@ where
             let alpha = AtomicI32::new(alpha);
             let best_move = Mutex::new(ValueMove::new(initial_value, first_move));
             // Parallel search
-            let result = moves.par_iter().with_max_len(1).try_for_each(|&m| -> Option<()> {
+            let result = moves[1..].par_iter().with_max_len(1).try_for_each(|&m| -> Option<()> {
                 // Check to see if we're cancelled by another branch.
                 let initial_alpha = alpha.load(Ordering::SeqCst);
                 if initial_alpha >= beta {
@@ -267,20 +281,25 @@ where
                 m.apply(&mut state);
                 let value = if self.opts.null_window_search && initial_alpha > alpha_orig {
                     // TODO: send reference to alpha as neg_beta to children.
-                    let probe =
-                        -self.negamax(&mut state, depth - 1, -initial_alpha - 1, -initial_alpha)?;
+                    let probe = -self.negamax(
+                        &mut state,
+                        Some(m),
+                        depth - 1,
+                        -initial_alpha - 1,
+                        -initial_alpha,
+                    )?;
                     if probe > initial_alpha && probe < beta {
                         // Check again that we're not cancelled.
                         if alpha.load(Ordering::SeqCst) >= beta {
                             return None;
                         }
                         // Full search fallback.
-                        -self.negamax(&mut state, depth - 1, -beta, -probe)?
+                        -self.negamax(&mut state, Some(m), depth - 1, -beta, -probe)?
                     } else {
                         probe
                     }
                 } else {
-                    -self.negamax(&mut state, depth - 1, -beta, -initial_alpha)?
+                    -self.negamax(&mut state, Some(m), depth - 1, -beta, -initial_alpha)?
                 };
 
                 alpha.fetch_max(value, Ordering::SeqCst);
@@ -318,7 +337,7 @@ where
         }
         while depth <= max_depth as u8 {
             interval_start = Instant::now();
-            if self.negamax(&mut state, depth, WORST_EVAL, BEST_EVAL).is_none() {
+            if self.negamax(&mut state, None, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
                 break;
             }

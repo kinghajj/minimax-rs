@@ -78,11 +78,11 @@ pub(super) struct ThreadLocal<T> {
 unsafe impl<T> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
-impl<T: Send + Default> ThreadLocal<T> {
-    pub(super) fn new(pool: &rayon::ThreadPool) -> Self {
+impl<T: Send> ThreadLocal<T> {
+    pub(super) fn new<F: Fn() -> T>(f: F, pool: &rayon::ThreadPool) -> Self {
         let mut locals = Vec::new();
         for _ in 0..pool.current_num_threads() {
-            locals.push(T::default());
+            locals.push(f());
         }
         let ptr = locals.as_mut_ptr();
         Self { _locals: locals, ptr }
