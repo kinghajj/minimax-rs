@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
@@ -67,9 +68,11 @@ fn test_atomic_box() {
     assert_eq!(Some(&3), b.get());
 }
 
+// Safe API around lockfree threadlocals for rayon threadpools.
+// Only safe when used from a single threadpool, as this crate does.
 pub(super) struct ThreadLocal<T> {
     // Our owned reference to all the locals.
-    _locals: Vec<T>,
+    locals: Vec<T>,
     // Mutable reference from which each thread finds its local.
     ptr: *mut T,
 }
@@ -85,12 +88,65 @@ impl<T: Send> ThreadLocal<T> {
             locals.push(f());
         }
         let ptr = locals.as_mut_ptr();
-        Self { _locals: locals, ptr }
+        Self { locals, ptr }
     }
 
     pub(super) fn local_do<F: FnOnce(&mut T)>(&self, f: F) {
-        if let Some(index) = rayon::current_thread_index() {
-            f(unsafe { self.ptr.add(index).as_mut().unwrap() });
+        // It would be nice to keep a handle to the threadpool to ensure this
+        // thread is from only our pool, but the lifetimes seem too
+        // restrictive.
+        let index = rayon::current_thread_index().unwrap();
+        f(unsafe { self.ptr.add(index).as_mut().unwrap() });
+    }
+
+    // With a &mut self, no other threads can be using it.
+    pub(super) fn do_all<F: FnMut(&mut T)>(&mut self, mut f: F) {
+        for local in self.locals.iter_mut() {
+            f(local);
         }
+    }
+}
+
+#[test]
+fn test_threadlocal() {
+    use rayon::prelude::*;
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let mut tls = ThreadLocal::<u32>::new(|| 0, &pool);
+    let count = 100000;
+    (0..count).into_par_iter().for_each(|_| tls.local_do(|x| *x += 1));
+    let mut sum = 0;
+    tls.do_all(|x| sum += *x);
+    assert_eq!(sum, count);
+
+    let result = std::panic::catch_unwind(|| {
+        // Invalid call from outside pool.
+        tls.local_do(|x| *x += 1);
+    });
+    assert!(result.is_err());
+}
+
+// 64-bytes is a common cache line size.
+#[repr(align(64))]
+pub(super) struct CachePadded<T> {
+    value: T,
+}
+
+impl<T: Default> Default for CachePadded<T> {
+    fn default() -> Self {
+        Self { value: T::default() }
+    }
+}
+
+impl<T> Deref for CachePadded<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> DerefMut for CachePadded<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.value
     }
 }

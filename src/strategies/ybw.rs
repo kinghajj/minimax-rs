@@ -9,8 +9,8 @@ extern crate rayon;
 
 use super::super::interface::*;
 use super::super::util::*;
-use super::iterative::IterativeOptions;
-use super::sync_util::{timeout_signal, ThreadLocal};
+use super::iterative::{IterativeOptions, Stats};
+use super::sync_util::{timeout_signal, CachePadded, ThreadLocal};
 use super::table::*;
 use super::util::*;
 
@@ -70,7 +70,7 @@ struct ParallelNegamaxer<E: Evaluator> {
     opts: IterativeOptions,
     ybw_opts: YbwOptions,
     timeout: Arc<AtomicBool>,
-    // TODO: stats
+    stats: ThreadLocal<CachePadded<Stats>>,
     move_pool: ThreadLocal<MovePool<<E::G as Game>::M>>,
     countermoves: ThreadLocal<CounterMoves<<E::G as Game>::M>>,
     pv: Mutex<Vec<<E::G as Game>::M>>,
@@ -93,6 +93,7 @@ where
             opts,
             ybw_opts,
             timeout,
+            stats: ThreadLocal::new(CachePadded::default, thread_pool),
             move_pool: ThreadLocal::new(MovePool::default, thread_pool),
             countermoves: ThreadLocal::new(
                 || CounterMoves::new(opts.countermove_table, opts.countermove_history_table),
@@ -180,7 +181,7 @@ where
             return None;
         }
 
-        //self.next_depth_nodes += 1;
+        self.stats.local_do(|stats| stats.explore_node());
 
         if depth == 0 {
             // Evaluate quiescence search on leaf nodes.
@@ -205,8 +206,7 @@ where
         let mut moves = Vec::new();
         self.move_pool.local_do(|pool| moves = pool.alloc());
         E::G::generate_moves(s, &mut moves);
-        //self.total_generate_move_calls += 1;
-        //self.total_generated_moves += moves.len() as u64;
+        self.stats.local_do(|stats| stats.generate_moves(moves.len()));
         if moves.is_empty() {
             self.move_pool.local_do(|pool| pool.free(moves));
             return Some(WORST_EVAL);
@@ -384,6 +384,16 @@ where
     }
 }
 
+fn pretty_stats(stats: &Stats, start: Instant) -> String {
+    let mean_branching_factor =
+        stats.total_generated_moves as f64 / stats.total_generate_move_calls as f64;
+    let throughput = (stats.nodes_explored) as f64 / (Instant::now() - start).as_secs_f64();
+    format!(
+        "Explored {} nodes. MBF={:.1}\n{} nodes/sec",
+        stats.nodes_explored, mean_branching_factor, throughput as usize
+    )
+}
+
 pub struct ParallelYbw<E: Evaluator> {
     max_depth: u8,
     max_time: Duration,
@@ -442,7 +452,8 @@ where
         };
 
         let best_value_move = {
-            let negamaxer = ParallelNegamaxer::new(
+            let start_time = Instant::now();
+            let mut negamaxer = ParallelNegamaxer::new(
                 self.opts,
                 self.ybw_opts,
                 self.eval.clone(),
@@ -455,6 +466,11 @@ where
                 .thread_pool
                 .install(|| negamaxer.iterative_search(s.clone(), self.max_depth, false));
             self.principal_variation = negamaxer.principal_variation();
+            let mut stats = Stats::default();
+            negamaxer.stats.do_all(|local| stats.add(local));
+            if self.opts.verbose {
+                eprintln!("{}", pretty_stats(&stats, start_time));
+            }
             value_move
         };
         if let Some((best_move, value)) = best_value_move {

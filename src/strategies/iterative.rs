@@ -279,6 +279,12 @@ impl Stats {
         self.total_generate_move_calls += 1;
         self.total_generated_moves += num_moves as u64;
     }
+
+    pub(crate) fn add(&mut self, other: &Self) {
+        self.nodes_explored += other.nodes_explored;
+        self.total_generate_move_calls += other.total_generate_move_calls;
+        self.total_generated_moves += other.total_generated_moves;
+    }
 }
 
 pub(super) struct Negamaxer<E: Evaluator, T> {
