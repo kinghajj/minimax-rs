@@ -258,6 +258,29 @@ impl IterativeOptions {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct Stats {
+    pub(crate) nodes_explored: u64,
+    pub(crate) total_generate_move_calls: u64,
+    pub(crate) total_generated_moves: u64,
+}
+
+impl Stats {
+    pub(crate) fn reset(&mut self) {
+        self.nodes_explored = 0;
+        self.total_generate_move_calls = 0;
+        self.total_generated_moves = 0;
+    }
+    pub(crate) fn explore_node(&mut self) {
+        self.nodes_explored += 1;
+    }
+
+    pub(crate) fn generate_moves(&mut self, num_moves: usize) {
+        self.total_generate_move_calls += 1;
+        self.total_generated_moves += num_moves as u64;
+    }
+}
+
 pub(super) struct Negamaxer<E: Evaluator, T> {
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     timeout: Arc<AtomicBool>,
@@ -270,13 +293,8 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     move_pool: MovePool<<E::G as Game>::M>,
     eval: E,
 
-    // Config
     opts: IterativeOptions,
-
-    // Stats
-    pub(crate) nodes_explored: u64,
-    pub(crate) total_generate_move_calls: u64,
-    pub(crate) total_generated_moves: u64,
+    pub(crate) stats: Stats,
 }
 
 impl<E: Evaluator, T: Table<<E::G as Game>::M>> Negamaxer<E, T>
@@ -297,16 +315,8 @@ where
             eval,
             move_pool: MovePool::default(),
             opts,
-            nodes_explored: 0,
-            total_generate_move_calls: 0,
-            total_generated_moves: 0,
+            stats: Stats::default(),
         }
-    }
-
-    fn reset_stats(&mut self) {
-        self.nodes_explored = 0;
-        self.total_generate_move_calls = 0;
-        self.total_generated_moves = 0;
     }
 
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -415,7 +425,7 @@ where
             return None;
         }
 
-        self.nodes_explored += 1;
+        self.stats.explore_node();
 
         if depth == 0 {
             // Evaluate quiescence search on leaf nodes.
@@ -439,8 +449,7 @@ where
 
         let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);
-        self.total_generate_move_calls += 1;
-        self.total_generated_moves += moves.len() as u64;
+        self.stats.generate_moves(moves.len());
         if moves.is_empty() {
             self.move_pool.free(moves);
             return Some(WORST_EVAL);
@@ -573,16 +582,16 @@ where
     /// Return a human-readable summary of the last move generation.
     pub fn stats(&self, s: &mut <E::G as Game>::S) -> String {
         let total_nodes_explored: u64 = self.nodes_explored.iter().sum();
-        let mean_branching_factor = self.negamaxer.total_generated_moves as f64
-            / self.negamaxer.total_generate_move_calls as f64;
+        let mean_branching_factor = self.negamaxer.stats.total_generated_moves as f64
+            / self.negamaxer.stats.total_generate_move_calls as f64;
         let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
             .powf((self.actual_depth as f64 + 1.0).recip());
-        let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
+        let throughput = (total_nodes_explored + self.negamaxer.stats.nodes_explored) as f64
             / self.wall_time.as_secs_f64();
         format!("Principal variation: {}\nExplored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
                 pv_string::<E::G>(&self.pv[..], s),
 		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
-		self.negamaxer.nodes_explored, throughput as usize)
+		self.negamaxer.stats.nodes_explored, throughput as usize)
     }
 
     #[doc(hidden)]
@@ -624,7 +633,7 @@ where
         self.negamaxer.countermoves.advance_generation(E::G::null_move(s));
         // Reset stats.
         self.nodes_explored.clear();
-        self.negamaxer.reset_stats();
+        self.negamaxer.stats.reset();
         self.actual_depth = 0;
         let start_time = Instant::now();
         // Start timer if configured.
@@ -698,8 +707,8 @@ where
             }
 
             self.actual_depth = max(self.actual_depth, depth);
-            self.nodes_explored.push(self.negamaxer.nodes_explored);
-            self.negamaxer.nodes_explored = 0;
+            self.nodes_explored.push(self.negamaxer.stats.nodes_explored);
+            self.negamaxer.stats.nodes_explored = 0;
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
             self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone);

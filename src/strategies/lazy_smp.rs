@@ -99,12 +99,11 @@ impl SharedStats {
     }
 
     fn update<E: Evaluator, T>(&self, negamaxer: &mut Negamaxer<E, T>) {
-        self.nodes_explored.fetch_add(negamaxer.nodes_explored, Ordering::SeqCst);
-        negamaxer.nodes_explored = 0;
-        self.generated_moves.fetch_add(negamaxer.total_generated_moves, Ordering::SeqCst);
-        negamaxer.total_generated_moves = 0;
-        self.generate_move_calls.fetch_add(negamaxer.total_generate_move_calls, Ordering::SeqCst);
-        negamaxer.total_generate_move_calls = 0;
+        self.nodes_explored.fetch_add(negamaxer.stats.nodes_explored, Ordering::SeqCst);
+        self.generated_moves.fetch_add(negamaxer.stats.total_generated_moves, Ordering::SeqCst);
+        self.generate_move_calls
+            .fetch_add(negamaxer.stats.total_generate_move_calls, Ordering::SeqCst);
+        negamaxer.stats.reset();
     }
 
     fn reset_nodes_explored(&self) -> u64 {
@@ -341,12 +340,12 @@ where
             / self.shared_stats.generate_move_calls.load(Ordering::SeqCst) as f64;
         let effective_branching_factor = (*self.nodes_explored.last().unwrap_or(&0) as f64)
             .powf((self.actual_depth as f64 + 1.0).recip());
-        let throughput = (total_nodes_explored + self.negamaxer.nodes_explored) as f64
+        let throughput = (total_nodes_explored + self.negamaxer.stats.nodes_explored) as f64
             / self.wall_time.as_secs_f64();
         format!("Principal variation: {}\nExplored {} nodes to depth {}. MBF={:.1} EBF={:.1}\nPartial exploration of next depth hit {} nodes.\n{} nodes/sec",
                 pv_string::<E::G>(&self.pv[..], s),
 		total_nodes_explored, self.actual_depth, mean_branching_factor, effective_branching_factor,
-		self.negamaxer.nodes_explored, throughput as usize)
+		self.negamaxer.stats.nodes_explored, throughput as usize)
     }
 }
 
