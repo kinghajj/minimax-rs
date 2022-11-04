@@ -273,11 +273,11 @@ fn main() {
     let mut iterative =
         IterativeSearch::new(BasicEvaluator::default(), opts.clone().with_aspiration_window(5));
     iterative.set_max_depth(12);
-    let mut parallelybw = ParallelYbw::new(BasicEvaluator::default(), opts, YbwOptions::new());
-    parallelybw.set_max_depth(12);
+    let mut parallel = ParallelSearch::new(BasicEvaluator::default(), opts, ParallelOptions::new());
+    parallel.set_max_depth(12);
 
     let mut strategies: [&mut dyn Strategy<self::Game>; 3] =
-        [&mut dumb, &mut iterative, &mut parallelybw];
+        [&mut dumb, &mut iterative, &mut parallel];
 
     if std::env::args().any(|arg| arg == "parallel") {
         strategies.swap(1, 2);

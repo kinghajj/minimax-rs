@@ -178,15 +178,16 @@ fn compare_plain_negamax() {
             }
 
             let opt = IterativeOptions::new().with_table_byte_size(64000);
-            let mut ybw = ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
-            ybw.set_max_depth(max_depth);
-            let ybw_move = ybw.choose_move(&b).unwrap();
-            let ybw_value = ybw.root_value();
-            assert_eq!(value, ybw_value, "search depth={}\n{}", max_depth, b);
+            let mut parallel =
+                ParallelSearch::new(RandomEvaluator::default(), opt, ParallelOptions::default());
+            parallel.set_max_depth(max_depth);
+            let par_move = parallel.choose_move(&b).unwrap();
+            let par_value = parallel.root_value();
+            assert_eq!(value, par_value, "search depth={}\n{}", max_depth, b);
             assert!(
-                plain_negamax.best_moves.contains(&ybw_move),
+                plain_negamax.best_moves.contains(&par_move),
                 "bad move={:?}\nsearch depth={}\n{}",
-                ybw_move,
+                par_move,
                 max_depth,
                 b
             );
@@ -224,7 +225,7 @@ fn compare_deep_negamax() {
             assert_eq!(value, mtdf_value, "search depth={}\n{}", max_depth, b);
 
             let mut parallel =
-                ParallelYbw::new(RandomEvaluator::default(), opt, YbwOptions::default());
+                ParallelSearch::new(RandomEvaluator::default(), opt, ParallelOptions::default());
             parallel.set_max_depth(max_depth);
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();

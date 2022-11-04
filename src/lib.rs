@@ -13,5 +13,5 @@ pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch};
 pub use strategies::negamax::Negamax;
 pub use strategies::random::Random;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-pub use strategies::ybw::{ParallelYbw, YbwOptions};
+pub use strategies::ybw::{ParallelOptions, ParallelSearch};
 pub use util::perft;

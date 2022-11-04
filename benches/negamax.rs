@@ -32,10 +32,10 @@ fn bench_iterative(b: &mut Bencher) {
 fn bench_parallel(b: &mut Bencher) {
     let board = connect4::Board::default();
     b.iter(|| {
-        let mut s = ParallelYbw::new(
+        let mut s = ParallelSearch::new(
             connect4::BasicEvaluator::default(),
             IterativeOptions::new().with_table_byte_size(32_000),
-            YbwOptions::new(),
+            ParallelOptions::new(),
         );
         s.set_max_depth(5);
         let m = s.choose_move(&board);

@@ -1,9 +1,9 @@
 //! An implementation of iterative deeping, with each iteration executed in parallel.
 //!
-//! This implementation uses the Young Brothers Wait Concept, which evaluates
-//! the best guess move serially first, then parallelizes all other moves
-//! using rayon. This tries to reduce redundant computation at the expense of
-//! more board state clones and slightly more thread synchronization.
+//! This implementation evaluates the best guess at each move first, then
+//! parallelizes all other moves using rayon.
+//!
+//! This is based on the Young Brothers Wait Concept and CilkChess.
 
 extern crate rayon;
 
@@ -22,25 +22,25 @@ use std::time::{Duration, Instant};
 
 /// Options to use for the parallel search engine.
 #[derive(Clone, Copy)]
-pub struct YbwOptions {
+pub struct ParallelOptions {
     pub num_threads: Option<usize>,
     serial_cutoff_depth: u8,
     pub background_pondering: bool,
 }
 
-impl YbwOptions {
+impl ParallelOptions {
     pub fn new() -> Self {
-        YbwOptions { num_threads: None, serial_cutoff_depth: 1, background_pondering: false }
+        ParallelOptions { num_threads: None, serial_cutoff_depth: 1, background_pondering: false }
     }
 }
 
-impl Default for YbwOptions {
+impl Default for ParallelOptions {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl YbwOptions {
+impl ParallelOptions {
     /// Set the total number of threads to use. Otherwise defaults to num_cpus.
     pub fn with_num_threads(mut self, num_threads: usize) -> Self {
         self.num_threads = Some(num_threads);
@@ -68,7 +68,7 @@ struct ParallelNegamaxer<E: Evaluator> {
     table: Arc<LockfreeTable<<E::G as Game>::M>>,
     eval: E,
     opts: IterativeOptions,
-    ybw_opts: YbwOptions,
+    par_opts: ParallelOptions,
     timeout: Arc<AtomicBool>,
     stats: ThreadLocal<CachePadded<Stats>>,
     move_pool: ThreadLocal<MovePool<<E::G as Game>::M>>,
@@ -83,7 +83,7 @@ where
     E: Clone + Sync + Send + 'static,
 {
     fn new(
-        opts: IterativeOptions, ybw_opts: YbwOptions, eval: E,
+        opts: IterativeOptions, par_opts: ParallelOptions, eval: E,
         table: Arc<LockfreeTable<<E::G as Game>::M>>, timeout: Arc<AtomicBool>,
         thread_pool: &rayon::ThreadPool,
     ) -> Self {
@@ -91,7 +91,7 @@ where
             table,
             eval,
             opts,
-            ybw_opts,
+            par_opts,
             timeout,
             stats: ThreadLocal::new(CachePadded::default, thread_pool),
             move_pool: ThreadLocal::new(MovePool::default, thread_pool),
@@ -231,7 +231,7 @@ where
         let (best, best_move) = if alpha >= beta {
             // Skip search
             (initial_value, first_move)
-        } else if self.ybw_opts.serial_cutoff_depth >= depth {
+        } else if self.par_opts.serial_cutoff_depth >= depth {
             // Serial search
             let mut best = initial_value;
             let mut best_move = first_move;
@@ -359,8 +359,8 @@ where
             if self.opts.verbose && !background {
                 let interval = Instant::now() - interval_start;
                 eprintln!(
-                    "Ybw search (threads={}) depth{:>2} took{:>5}ms; returned{:>5}; bestmove {}",
-                    self.ybw_opts.num_threads(),
+                    "Parallel (threads={}) depth{:>2} took{:>5}ms; returned{:>5}; bestmove {}",
+                    self.par_opts.num_threads(),
                     depth,
                     interval.as_millis(),
                     entry.value_string(),
@@ -394,7 +394,7 @@ fn pretty_stats(stats: &Stats, start: Instant) -> String {
     )
 }
 
-pub struct ParallelYbw<E: Evaluator> {
+pub struct ParallelSearch<E: Evaluator> {
     max_depth: u8,
     max_time: Duration,
 
@@ -407,15 +407,15 @@ pub struct ParallelYbw<E: Evaluator> {
     thread_pool: rayon::ThreadPool,
 
     opts: IterativeOptions,
-    ybw_opts: YbwOptions,
+    par_opts: ParallelOptions,
 }
 
-impl<E: Evaluator> ParallelYbw<E> {
-    pub fn new(eval: E, opts: IterativeOptions, ybw_opts: YbwOptions) -> ParallelYbw<E> {
+impl<E: Evaluator> ParallelSearch<E> {
+    pub fn new(eval: E, opts: IterativeOptions, par_opts: ParallelOptions) -> ParallelSearch<E> {
         let table = Arc::new(LockfreeTable::new(opts.table_byte_size));
-        let num_threads = ybw_opts.num_threads();
+        let num_threads = par_opts.num_threads();
         let pool_builder = rayon::ThreadPoolBuilder::new().num_threads(num_threads);
-        ParallelYbw {
+        ParallelSearch {
             max_depth: 99,
             max_time: Duration::from_secs(5),
             background_cancel: Arc::new(AtomicBool::new(false)),
@@ -424,7 +424,7 @@ impl<E: Evaluator> ParallelYbw<E> {
             principal_variation: Vec::new(),
             thread_pool: pool_builder.build().unwrap(),
             opts,
-            ybw_opts,
+            par_opts,
             eval,
         }
     }
@@ -435,7 +435,7 @@ impl<E: Evaluator> ParallelYbw<E> {
     }
 }
 
-impl<E: Evaluator> Strategy<E::G> for ParallelYbw<E>
+impl<E: Evaluator> Strategy<E::G> for ParallelSearch<E>
 where
     <E::G as Game>::S: Clone + Zobrist + Send + Sync,
     <E::G as Game>::M: Copy + Eq + Send + Sync,
@@ -451,11 +451,11 @@ where
             timeout_signal(self.max_time)
         };
 
-        let best_value_move = {
+        let (best_move, value) = {
             let start_time = Instant::now();
             let mut negamaxer = ParallelNegamaxer::new(
                 self.opts,
-                self.ybw_opts,
+                self.par_opts,
                 self.eval.clone(),
                 self.table.clone(),
                 timeout,
@@ -472,33 +472,29 @@ where
                 eprintln!("{}", pretty_stats(&stats, start_time));
             }
             value_move
-        };
-        if let Some((best_move, value)) = best_value_move {
-            self.prev_value = value;
+        }?;
+        self.prev_value = value;
 
-            if self.ybw_opts.background_pondering {
-                self.background_cancel = Arc::new(AtomicBool::new(false));
-                // Create a separate negamaxer to have a dedicated cancel
-                // signal, and to allow the negamaxer to outlive this scope.
-                let negamaxer = ParallelNegamaxer::new(
-                    self.opts,
-                    self.ybw_opts,
-                    self.eval.clone(),
-                    self.table.clone(),
-                    self.background_cancel.clone(),
-                    &self.thread_pool,
-                );
-                let mut state = s.clone();
-                best_move.apply(&mut state);
-                // Launch in threadpool asynchronously.
-                self.thread_pool.spawn(move || {
-                    negamaxer.iterative_search(state, 99, true);
-                });
-            }
-            Some(best_move)
-        } else {
-            None
+        if self.par_opts.background_pondering {
+            self.background_cancel = Arc::new(AtomicBool::new(false));
+            // Create a separate negamaxer to have a dedicated cancel
+            // signal, and to allow the negamaxer to outlive this scope.
+            let negamaxer = ParallelNegamaxer::new(
+                self.opts,
+                self.par_opts,
+                self.eval.clone(),
+                self.table.clone(),
+                self.background_cancel.clone(),
+                &self.thread_pool,
+            );
+            let mut state = s.clone();
+            best_move.apply(&mut state);
+            // Launch in threadpool asynchronously.
+            self.thread_pool.spawn(move || {
+                negamaxer.iterative_search(state, 99, true);
+            });
         }
+        Some(best_move)
     }
 
     fn set_timeout(&mut self, max_time: Duration) {
@@ -516,7 +512,7 @@ where
     }
 }
 
-impl<E: Evaluator> Drop for ParallelYbw<E> {
+impl<E: Evaluator> Drop for ParallelSearch<E> {
     fn drop(&mut self) {
         self.background_cancel.store(true, Ordering::SeqCst);
     }
