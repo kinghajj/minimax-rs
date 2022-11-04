@@ -190,20 +190,6 @@ fn compare_plain_negamax() {
                 max_depth,
                 b
             );
-
-            let mut lazysmp =
-                LazySmp::new(RandomEvaluator::default(), opt, LazySmpOptions::default());
-            lazysmp.set_max_depth(max_depth);
-            let lazysmp_move = lazysmp.choose_move(&b).unwrap();
-            let lazysmp_value = lazysmp.root_value();
-            assert_eq!(value, lazysmp_value, "search depth={}\n{}", max_depth, b);
-            assert!(
-                plain_negamax.best_moves.contains(&lazysmp_move),
-                "bad move={:?}\nsearch depth={}\n{}",
-                lazysmp_move,
-                max_depth,
-                b
-            );
         }
     }
 }
@@ -242,14 +228,7 @@ fn compare_deep_negamax() {
             parallel.set_max_depth(max_depth);
             parallel.choose_move(&b).unwrap();
             let parallel_value = parallel.root_value();
-            assert_eq!(value, parallel_value, "search depth={}\n{}", max_depth, b);
-
-            let mut lazysmp =
-                LazySmp::new(RandomEvaluator::default(), opt, LazySmpOptions::default());
-            lazysmp.set_max_depth(max_depth);
-            lazysmp.choose_move(&b).unwrap();
-            let lazysmp_value = lazysmp.root_value();
-            assert_eq!(value, lazysmp_value, "search depth={} iter={}\n{}", max_depth, iter, b);
+            assert_eq!(value, parallel_value, "search iter={} depth={}\n{}", iter, max_depth, b);
         }
     }
 }

@@ -275,16 +275,12 @@ fn main() {
     iterative.set_max_depth(12);
     let mut parallelybw = ParallelYbw::new(BasicEvaluator::default(), opts, YbwOptions::new());
     parallelybw.set_max_depth(12);
-    let mut lazysmp = LazySmp::new(BasicEvaluator::default(), opts, LazySmpOptions::new());
-    lazysmp.set_max_depth(12);
 
-    let mut strategies: [&mut dyn Strategy<self::Game>; 4] =
-        [&mut dumb, &mut iterative, &mut parallelybw, &mut lazysmp];
+    let mut strategies: [&mut dyn Strategy<self::Game>; 3] =
+        [&mut dumb, &mut iterative, &mut parallelybw];
 
     if std::env::args().any(|arg| arg == "parallel") {
         strategies.swap(1, 2);
-    } else if std::env::args().any(|arg| arg == "lazysmp") {
-        strategies.swap(1, 3);
     }
 
     let mut s = 0;

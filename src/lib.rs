@@ -9,8 +9,6 @@ pub use interface::{
 };
 pub use strategies::iterative::{IterativeOptions, IterativeSearch, Replacement};
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-pub use strategies::lazy_smp::{LazySmp, LazySmpOptions};
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch};
 pub use strategies::negamax::Negamax;
 pub use strategies::random::Random;
