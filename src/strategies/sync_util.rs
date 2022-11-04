@@ -94,7 +94,7 @@ impl<T: Send> ThreadLocal<T> {
         // thread is from only our pool, but the lifetimes seem too
         // restrictive.
         let index = rayon::current_thread_index().unwrap();
-	assert!(index < self.locals.len());
+        assert!(index < self.locals.len());
         f(unsafe { self.ptr.add(index).as_mut().unwrap() });
     }
 

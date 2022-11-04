@@ -16,7 +16,7 @@ use super::util::*;
 
 use rayon::prelude::*;
 use std::cmp::max;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -267,7 +267,7 @@ where
             }
             (best, best_move)
         } else {
-            let alpha = AtomicI32::new(alpha);
+            let alpha = AtomicI16::new(alpha);
             let best_move = Mutex::new(ValueMove::new(initial_value, first_move));
             // Parallel search
             let result = moves[1..].par_iter().with_max_len(1).try_for_each(|&m| -> Option<()> {

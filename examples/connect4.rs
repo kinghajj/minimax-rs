@@ -215,8 +215,10 @@ impl minimax::Evaluator for BasicEvaluator {
         let mut score = 0;
         // Bonus points for moves in the middle columns.
         for col in 2..5 {
-            score += ((player_pieces >> (HEIGHT * col)) & COL_MASK).count_ones() as i32;
-            score -= ((opponent_pieces >> (HEIGHT * col)) & COL_MASK).count_ones() as i32;
+            score +=
+                ((player_pieces >> (HEIGHT * col)) & COL_MASK).count_ones() as minimax::Evaluation;
+            score -= ((opponent_pieces >> (HEIGHT * col)) & COL_MASK).count_ones()
+                as minimax::Evaluation;
         }
 
         // Count columns that cause immediate win.

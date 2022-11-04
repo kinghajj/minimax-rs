@@ -14,6 +14,7 @@ pub(super) enum EntryFlag {
 }
 
 #[derive(Copy, Clone)]
+#[repr(align(16))]
 pub(super) struct Entry<M> {
     pub(super) high_hash: u32,
     pub(super) value: Evaluation,
@@ -25,8 +26,8 @@ pub(super) struct Entry<M> {
 
 #[test]
 fn test_entry_size() {
-    assert!(std::mem::size_of::<Entry<[u8; 4]>>() <= 16);
-    assert!(std::mem::size_of::<ConcurrentEntry<[u8; 4]>>() <= 16);
+    assert!(std::mem::size_of::<Entry<[u16; 2]>>() <= 16);
+    assert!(std::mem::size_of::<ConcurrentEntry<[u8; 6]>>() <= 16);
 }
 
 pub(super) fn high_bits(hash: u64) -> u32 {
@@ -247,6 +248,7 @@ impl<M: Copy> ConcurrentTable<M> for RacyTable<M> {
     }
 }
 
+#[repr(align(16))]
 struct ConcurrentEntry<M> {
     high_hash: AtomicU32,
     value: Evaluation,
