@@ -78,15 +78,13 @@ pub(super) struct ThreadLocal<T> {
 }
 
 // Values are only accessed from their individual threads and references do not leak.
-unsafe impl<T> Send for ThreadLocal<T> {}
+unsafe impl<T: Send> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
 impl<T: Send> ThreadLocal<T> {
     pub(super) fn new<F: Fn() -> T>(f: F, pool: &rayon::ThreadPool) -> Self {
-        let mut locals = Vec::new();
-        for _ in 0..pool.current_num_threads() {
-            locals.push(f());
-        }
+        let n = pool.current_num_threads();
+        let mut locals = (0..n).map(|_| f()).collect::<Vec<_>>();
         let ptr = locals.as_mut_ptr();
         Self { locals, ptr }
     }
@@ -96,14 +94,13 @@ impl<T: Send> ThreadLocal<T> {
         // thread is from only our pool, but the lifetimes seem too
         // restrictive.
         let index = rayon::current_thread_index().unwrap();
+	assert!(index < self.locals.len());
         f(unsafe { self.ptr.add(index).as_mut().unwrap() });
     }
 
     // With a &mut self, no other threads can be using it.
-    pub(super) fn do_all<F: FnMut(&mut T)>(&mut self, mut f: F) {
-        for local in self.locals.iter_mut() {
-            f(local);
-        }
+    pub(super) fn do_all<F: FnMut(&mut T)>(&mut self, f: F) {
+        self.locals.iter_mut().for_each(f);
     }
 }
 
