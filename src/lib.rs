@@ -79,10 +79,10 @@ pub use interface::{
     Evaluation, Evaluator, Game, Move, Strategy, Winner, Zobrist, BEST_EVAL, WORST_EVAL,
 };
 pub use strategies::iterative::{IterativeOptions, IterativeSearch, Replacement};
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch};
 pub use strategies::negamax::Negamax;
 pub use strategies::random::Random;
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub use strategies::ybw::{ParallelOptions, ParallelSearch};
 pub use util::perft;

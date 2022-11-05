@@ -82,7 +82,7 @@ impl<M> ValueMove<M> {
         Self { value, m }
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn max(&mut self, value: Evaluation, m: M) {
         if value > self.value {
             self.value = value;
@@ -90,7 +90,7 @@ impl<M> ValueMove<M> {
         }
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn into_inner(self) -> (Evaluation, M) {
         (self.value, self.m)
     }

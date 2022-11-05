@@ -14,11 +14,11 @@ license = "MIT"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 rand = "0.8"
 
-[target.'cfg(not(all(target_arch="wasm32", target_os="unknown")))'.dependencies]
+[target.'cfg(not(target_arch="wasm32"))'.dependencies]
 num_cpus = "1.0"
 rayon = "^1.5"
 
-[target.'cfg(all(target_arch="wasm32", target_os="unknown"))'.dependencies]
+[target.'cfg(target_arch="wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"]}
 
 [dev-dependencies]

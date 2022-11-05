@@ -1,12 +1,12 @@
 //! Utility functions for testing, and tests.
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 extern crate rayon;
 
 use super::interface;
 use super::interface::{Game, Move};
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use std::default::Default;
 use std::time::Instant;
@@ -61,7 +61,7 @@ impl<M> MovePool<M> {
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn perft_recurse<G: Game>(
     pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
 ) -> u64
@@ -106,7 +106,7 @@ where
     n
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(target_arch = "wasm32")]
 fn perft_recurse<G: Game>(
     pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
 ) -> u64

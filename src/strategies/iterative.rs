@@ -6,7 +6,7 @@
 
 use super::super::interface::*;
 use super::super::util::*;
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 use super::sync_util::timeout_signal;
 use super::table::*;
 use super::util::*;
@@ -14,9 +14,9 @@ use super::util::*;
 use instant::Instant;
 use rand::prelude::SliceRandom;
 use std::cmp::max;
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -280,6 +280,7 @@ impl Stats {
         self.total_generated_moves += num_moves as u64;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn add(&mut self, other: &Self) {
         self.nodes_explored += other.nodes_explored;
         self.total_generate_move_calls += other.total_generate_move_calls;
@@ -288,11 +289,11 @@ impl Stats {
 }
 
 pub(super) struct Negamaxer<E: Evaluator, T> {
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     timeout: Arc<AtomicBool>,
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[cfg(target_arch = "wasm32")]
     deadline: Instant,
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[cfg(target_arch = "wasm32")]
     timeout_counter: u32,
     pub(super) table: T,
     pub(super) countermoves: CounterMoves<<E::G as Game>::M>,
@@ -310,11 +311,11 @@ where
 {
     pub(super) fn new(table: T, eval: E, opts: IterativeOptions) -> Self {
         Self {
-            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            #[cfg(not(target_arch = "wasm32"))]
             timeout: Arc::new(AtomicBool::new(false)),
-            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            #[cfg(target_arch = "wasm32")]
             deadline: Instant::now(),
-            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            #[cfg(target_arch = "wasm32")]
             timeout_counter: 1000,
             table,
             countermoves: CounterMoves::new(opts.countermove_table, opts.countermove_history_table),
@@ -325,12 +326,12 @@ where
         }
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn set_timeout(&mut self, timeout: Arc<AtomicBool>) {
         self.timeout = timeout;
     }
 
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[cfg(target_arch = "wasm32")]
     fn reset_timeout(&mut self, duration: Duration) {
         self.timeout_counter = if duration == Duration::new(0, 0) {
             // Too high counter that never hits the maximum.
@@ -340,7 +341,7 @@ where
         };
         self.deadline = Instant::now() + duration;
     }
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn reset_timeout(&mut self, duration: Duration) {
         self.set_timeout(if duration == Duration::new(0, 0) {
             Arc::new(AtomicBool::new(false))
@@ -349,7 +350,7 @@ where
         });
     }
 
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[cfg(target_arch = "wasm32")]
     fn timeout_check(&mut self) -> bool {
         self.timeout_counter += 1;
         if self.timeout_counter != 100 {
@@ -358,7 +359,7 @@ where
         self.timeout_counter = 0;
         Instant::now() >= self.deadline
     }
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn timeout_check(&mut self) -> bool {
         self.timeout.load(Ordering::Relaxed)
     }
