@@ -1,84 +1,67 @@
 //! The common structures and traits.
 
-use std::ops;
+/// An assessment of a game state from the perspective of the player whose turn it is to play.
+/// Higher values mean a more favorable state.
+/// A draw is defined as a score of zero.
+pub type Evaluation = i16;
 
-/// A competitor within a game.
-///
-/// For simplicity, only two players are supported. Their values correspond to
-/// the "color" parameter in Negamax.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(i8)]
-pub enum Player {
-    Computer = 1,
-    Opponent = -1,
-}
+// These definitions ensure that they negate to each other, but it leaves
+// i32::MIN as a valid value less than WORST_EVAL. Don't use this value, and
+// any Strategy will panic when it tries to negate it.
 
-/// Negating a player results in the opposite one.
-impl ops::Neg for Player {
-    type Output = Player;
-    #[inline]
-    fn neg(self) -> Player {
-        match self {
-            Player::Computer => Player::Opponent,
-            Player::Opponent => Player::Computer,
-        }
-    }
-}
-
-/// An assessment of a game state from a particular player's perspective.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Evaluation {
-    /// An absolutely disastrous outcome, e.g. a loss.
-    Worst,
-    /// An outcome with some score. Higher values mean a more favorable state.
-    Score(i64),
-    /// An absolutely wonderful outcome, e.g. a win.
-    Best,
-}
-
-/// Negating an evaluation results in the corresponding one from the other
-/// player's persective.
-impl ops::Neg for Evaluation {
-    type Output = Evaluation;
-    #[inline]
-    fn neg(self) -> Evaluation {
-        match self {
-            Evaluation::Worst => Evaluation::Best,
-            Evaluation::Score(s) => Evaluation::Score(-s),
-            Evaluation::Best => Evaluation::Worst,
-        }
-    }
-}
-
-/// Multiplying a player and an evaluation negates the latter iff the former
-/// is `Opponent`.
-impl ops::Mul<Evaluation> for Player {
-    type Output = Evaluation;
-    #[inline]
-    fn mul(self, e: Evaluation) -> Evaluation {
-        match self {
-            Player::Computer => e,
-            Player::Opponent => -e,
-        }
-    }
-}
+/// An absolutely wonderful outcome, e.g. a win.
+pub const BEST_EVAL: Evaluation = i16::MAX;
+/// An absolutely disastrous outcome, e.g. a loss.
+pub const WORST_EVAL: Evaluation = -BEST_EVAL;
 
 /// Evaluates a game's positions.
-///
-/// The methods are defined recursively, so that implementing one is sufficient.
 pub trait Evaluator {
     /// The type of game that can be evaluated.
     type G: Game;
-    /// Evaluate the state from the persective of `Player::Computer`.
-    #[inline]
-    fn evaluate(s: &<Self::G as Game>::S, mw: Option<Winner>) -> Evaluation {
-        Self::evaluate_for(s, mw, Player::Computer)
+    /// Evaluate the non-terminal state from the persective of the player to
+    /// move next.
+    fn evaluate(&self, s: &<Self::G as Game>::S) -> Evaluation;
+
+    /// Optional interface to support strategies using quiescence search.
+    ///
+    /// A "noisy" move is a threatening move that requires a response.
+    ///
+    /// The term comes from chess, where capturing a piece is considered a noisy
+    /// move. Capturing a piece is often the first move out of an exchange of
+    /// captures. Evaluating the board state after only the first capture can
+    /// give a misleadingly high score. The solution is to continue the search
+    /// among only noisy moves and find the score once the board state settles.
+    ///
+    /// Noisy moves are not inherent parts of the rules, but engine decisions,
+    /// so they are implemented in Evaluator instead of Game.
+    fn generate_noisy_moves(
+        &self, _state: &<Self::G as Game>::S, _moves: &mut Vec<<Self::G as Game>::M>,
+    ) {
+        // When unimplemented, there are no noisy moves and search terminates
+        // immediately.
     }
 
-    /// Evaluate the state from the given player's persective.
-    #[inline]
-    fn evaluate_for(s: &<Self::G as Game>::S, mw: Option<Winner>, p: Player) -> Evaluation {
-        p * Self::evaluate(s, mw)
+    /// After generating moves, reorder them to explore the most promising first.
+    /// The default implementation evaluates all thes game states and sorts highest Evaluation first.
+    fn reorder_moves(&self, s: &mut <Self::G as Game>::S, moves: &mut [<Self::G as Game>::M])
+    where
+        <Self::G as Game>::M: Copy,
+    {
+        let mut evals = Vec::with_capacity(moves.len());
+        for &m in moves.iter() {
+            m.apply(s);
+            let eval = if let Some(winner) = Self::G::get_winner(s) {
+                -winner.evaluate()
+            } else {
+                -self.evaluate(s)
+            };
+            evals.push((eval, m));
+            m.undo(s);
+        }
+        evals.sort_by_key(|eval| eval.0);
+        for (m, eval) in moves.iter_mut().zip(evals) {
+            *m = eval.1;
+        }
     }
 }
 
@@ -90,51 +73,101 @@ pub trait Move {
     /// The type of game that the move affects.
     type G: Game;
     /// Change the state of `S` so that the move is applied.
-    #[inline]
-    fn apply(&self, &mut <Self::G as Game>::S);
+    fn apply(&self, state: &mut <Self::G as Game>::S);
     /// Revert the state of `S` so that the move is undone.
-    #[inline]
-    fn undo(&self, &mut <Self::G as Game>::S);
+    fn undo(&self, state: &mut <Self::G as Game>::S);
+    /// Return a human-readable notation for this move in this game state.
+    fn notation(&self, _state: &<Self::G as Game>::S) -> Option<String> {
+        None
+    }
+    /// Return a small index for this move for position-independent tables.
+    fn table_index(&self) -> u16 {
+        0
+    }
+    /// Maximum index value.
+    fn max_table_index() -> u16 {
+        0
+    }
 }
 
 /// The result of playing a game until it finishes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Winner {
-    /// A player won.
-    Competitor(Player),
+    /// The player who made the last move won.
+    PlayerJustMoved,
     /// Nobody won.
     Draw,
+    /// The player who made the last move lost.
+    ///
+    /// This is uncommon, and many games (chess, checkers, tic-tac-toe, etc)
+    /// do not have this possibility.
+    PlayerToMove,
+}
+
+impl Winner {
+    /// Canonical evaluations for end states.
+    pub fn evaluate(&self) -> Evaluation {
+        match *self {
+            Winner::PlayerJustMoved => WORST_EVAL,
+            Winner::PlayerToMove => BEST_EVAL,
+            Winner::Draw => 0,
+        }
+    }
+}
+
+/// An optional trait for game state types to support hashing.
+///
+/// Strategies that cache things by game state require this.
+pub trait Zobrist {
+    /// Hash of the game position.
+    ///
+    /// Expected to be pre-calculated and cheaply updated with each apply or
+    /// undo.
+    fn zobrist_hash(&self) -> u64;
 }
 
 /// Defines the rules for a two-player, perfect-knowledge game.
 ///
 /// A game ties together types for the state and moves, generates the possible
 /// moves from a particular state, and determines whether a state is terminal.
-pub trait Game : Sized {
+pub trait Game: Sized {
     /// The type of the game state.
     type S;
     /// The type of game moves.
-    type M: Move<G=Self>;
+    type M: Move<G = Self>;
 
-    /// Generate moves for a player at the given state. After finishing, the
-    /// next entry in the slice should be set to `None` to indicate the end.
-    /// Returns the number of moves generated.
-    ///
-    /// Currently, there's a deficiency that all strategies assume that at most
-    /// 100 moves may be generated for any position, which allows the underlying
-    /// memory for the slice to be a stack-allocated array. One stable, this
-    /// trait will be extended with an associated constant to specify the
-    /// maximum number of moves.
-    #[inline]
-    fn generate_moves(&Self::S, Player, &mut [Option<Self::M>]) -> usize;
+    /// Generate moves at the given state.
+    fn generate_moves(state: &Self::S, moves: &mut Vec<Self::M>);
 
-    /// Returns `Some(Competitor(winning_player))` if there's a winner,
+    /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if
     /// the state is non-terminal.
-    fn get_winner(&Self::S) -> Option<Winner>;
+    fn get_winner(state: &Self::S) -> Option<Winner>;
+
+    /// Optional method to return a move that does not change the board state.
+    /// This does not need to be a legal move from this position, but it is
+    /// used in some strategies to reject a position early if even passing gives
+    /// a good position for the opponent.
+    fn null_move(_state: &Self::S) -> Option<Self::M> {
+        None
+    }
 }
 
-/// Defines a method of choosing a move for either player in a any game.
+/// Defines a method of choosing a move for the current player.
 pub trait Strategy<G: Game> {
-    fn choose_move(&mut self, &G::S, Player) -> Option<G::M>;
+    fn choose_move(&mut self, state: &G::S) -> Option<G::M>;
+
+    /// For strategies that can ponder indefinitely, set the timeout.
+    /// This can be changed between calls to choose_move.
+    fn set_timeout(&mut self, _timeout: std::time::Duration) {}
+
+    /// Set the maximum depth to evaluate (instead of the timeout).
+    /// This can be changed between calls to choose_move.
+    fn set_max_depth(&mut self, _depth: u8) {}
+
+    /// From the last choose_move call, return the principal variation,
+    /// i.e. the best sequence of moves for both players.
+    fn principal_variation(&self) -> Vec<G::M> {
+        Vec::new()
+    }
 }

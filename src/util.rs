@@ -1,32 +1,161 @@
 //! Utility functions for testing, and tests.
 
+#[cfg(not(target_arch = "wasm32"))]
+extern crate rayon;
+
 use super::interface;
-use super::interface::Move;
+use super::interface::{Game, Move};
+
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 use std::default::Default;
+use std::time::Instant;
 
 /// Play a complete, new game with players using the two provided strategies.
 ///
-/// The first strategy will be `Player::Computer`, the other `Player::Opponent`.
-/// Returns result of the game.
-pub fn battle_royale<G, S1, S2>(s1: &mut S1, s2: &mut S2) -> interface::Winner
-    where G: interface::Game,
-          G::S: Default,
-          S1: interface::Strategy<G>,
-          S2: interface::Strategy<G>
+/// Returns `None` if the game ends in a draw, or `Some(0)`, `Some(1)` if the
+/// first or second strategy won, respectively.
+pub fn battle_royale<G, S1, S2>(s1: &mut S1, s2: &mut S2) -> Option<usize>
+where
+    G: interface::Game,
+    G::S: Default,
+    S1: interface::Strategy<G>,
+    S2: interface::Strategy<G>,
 {
     let mut state = G::S::default();
-    let mut strategies: Vec<(interface::Player, &mut interface::Strategy<G>)> = vec![
-            (interface::Player::Computer, s1),
-            (interface::Player::Opponent, s2),
-        ];
+    let mut strategies: [&mut dyn interface::Strategy<G>; 2] = [s1, s2];
     let mut s = 0;
     while G::get_winner(&state).is_none() {
-        let (p, ref mut strategy) = strategies[s];
-        match strategy.choose_move(&mut state, p) {
+        let strategy = &mut strategies[s];
+        match strategy.choose_move(&state) {
             Some(m) => m.apply(&mut state),
             None => break,
         }
         s = 1 - s;
     }
-    G::get_winner(&state).unwrap()
+    match G::get_winner(&state).unwrap() {
+        interface::Winner::Draw => None,
+        interface::Winner::PlayerJustMoved => Some(1 - s),
+        interface::Winner::PlayerToMove => Some(s),
+    }
+}
+
+pub(crate) struct MovePool<M> {
+    pool: Vec<Vec<M>>,
+}
+
+impl<M> Default for MovePool<M> {
+    fn default() -> Self {
+        Self { pool: Vec::new() }
+    }
+}
+
+impl<M> MovePool<M> {
+    pub(crate) fn alloc(&mut self) -> Vec<M> {
+        self.pool.pop().unwrap_or_default()
+    }
+
+    pub(crate) fn free(&mut self, mut vec: Vec<M>) {
+        vec.clear();
+        self.pool.push(vec);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn perft_recurse<G: Game>(
+    pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
+) -> u64
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
+    if depth == 0 {
+        return 1;
+    }
+    if G::get_winner(state).is_some() {
+        // Apparently perft rules only count positions at the target depth.
+        return 0;
+    }
+    let mut moves = pool.alloc();
+    G::generate_moves(state, &mut moves);
+    let n = if depth == 1 {
+        moves.len() as u64
+    } else if depth <= single_thread_cutoff {
+        // Single-thread recurse.
+        let mut count = 0;
+        for m in moves.iter() {
+            m.apply(state);
+            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
+            m.undo(state);
+        }
+        count
+    } else {
+        // Multi-thread recurse.
+        moves
+            .par_iter()
+            .with_max_len(1)
+            .map(|&m| {
+                let mut state2 = state.clone();
+                let mut pool2 = MovePool::<G::M>::default();
+                m.apply(&mut state2);
+                perft_recurse::<G>(&mut pool2, &mut state2, depth - 1, single_thread_cutoff)
+            })
+            .sum()
+    };
+    pool.free(moves);
+    n
+}
+
+#[cfg(target_arch = "wasm32")]
+fn perft_recurse<G: Game>(
+    pool: &mut MovePool<G::M>, state: &mut G::S, depth: u8, single_thread_cutoff: u8,
+) -> u64
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
+    if depth == 0 {
+        return 1;
+    }
+    if G::get_winner(state).is_some() {
+        // Apparently perft rules only count positions at the target depth.
+        return 0;
+    }
+    let mut moves = pool.alloc();
+    G::generate_moves(state, &mut moves);
+    let n = if depth == 1 {
+        moves.len() as u64
+    } else {
+        // Single-thread recurse.
+        let mut count = 0;
+        for m in moves.iter() {
+            m.apply(state);
+            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
+            m.undo(state);
+        }
+        count
+    };
+    pool.free(moves);
+    n
+}
+
+pub fn perft<G: Game>(state: &mut <G as Game>::S, max_depth: u8, multi_threaded: bool) -> Vec<u64>
+where
+    <G as Game>::S: Clone + Sync,
+    <G as Game>::M: Copy + Sync,
+{
+    println!("depth           count        time        kn/s");
+    let mut pool = MovePool::<G::M>::default();
+    let mut counts = Vec::new();
+    let single_thread_cutoff = if multi_threaded { 3 } else { max_depth };
+    for depth in 0..max_depth + 1 {
+        let start = Instant::now();
+        let count = perft_recurse::<G>(&mut pool, state, depth, single_thread_cutoff);
+        let dur = start.elapsed();
+        let rate = count as f64 / dur.as_secs_f64() / 1000.0;
+        let time = format!("{:.1?}", dur);
+        println!("{:>5} {:>15} {:>11} {:>11.1}", depth, count, time, rate);
+        counts.push(count);
+    }
+    counts
 }
