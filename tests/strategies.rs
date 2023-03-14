@@ -119,6 +119,30 @@ fn generate_random_state(depth: u8) -> connect4::Board {
 }
 
 #[test]
+fn test_winning_position() {
+    let mut b = connect4::Board::default();
+    connect4::Place { col: 2 }.apply(&mut b);
+    connect4::Place { col: 3 }.apply(&mut b);
+    connect4::Place { col: 2 }.apply(&mut b);
+    connect4::Place { col: 3 }.apply(&mut b);
+    connect4::Place { col: 2 }.apply(&mut b);
+    connect4::Place { col: 3 }.apply(&mut b);
+    connect4::Place { col: 2 }.apply(&mut b);
+    assert_eq!(Some(Winner::PlayerJustMoved), connect4::Game::get_winner(&b));
+
+    // Make sure none of the strategies die when given a winning position.
+    assert_eq!(None, Negamax::new(RandomEvaluator, 4).choose_move(&b));
+
+    let opt = IterativeOptions::new();
+    assert_eq!(None, IterativeSearch::new(RandomEvaluator::default(), opt).choose_move(&b));
+    assert_eq!(
+        None,
+        ParallelSearch::new(RandomEvaluator::default(), opt, ParallelOptions::default())
+            .choose_move(&b)
+    );
+}
+
+#[test]
 fn compare_plain_negamax() {
     for _ in 0..100 {
         for max_depth in 1..6 {

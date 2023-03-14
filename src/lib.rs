@@ -30,7 +30,7 @@
 //!             } else {
 //!                 minimax::Winner::PlayerToMove
 //!             })
-//!         } else if state.0 < 9 {
+//!         } else if state.0 < -9 {
 //!             Some(if state.0 % 2 == 0 {
 //!                 minimax::Winner::PlayerToMove
 //!             } else {

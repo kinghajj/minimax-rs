@@ -442,6 +442,9 @@ where
     E: Clone + Sync + Send + 'static,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        if E::G::get_winner(s).is_some() {
+            return None;
+        }
         // Cancel any ongoing background processing.
         self.background_cancel.store(true, Ordering::SeqCst);
         // Start timer if configured.

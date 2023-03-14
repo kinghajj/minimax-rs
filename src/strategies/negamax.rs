@@ -72,6 +72,9 @@ where
         if self.max_depth == 0 {
             return None;
         }
+        if E::G::get_winner(s).is_some() {
+            return None;
+        }
         let mut best = WORST_EVAL;
         let mut moves = self.move_pool.alloc();
         E::G::generate_moves(s, &mut moves);

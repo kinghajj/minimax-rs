@@ -636,6 +636,9 @@ where
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
+        if E::G::get_winner(s).is_some() {
+            return None;
+        }
         self.negamaxer.table.advance_generation();
         self.negamaxer.countermoves.advance_generation(E::G::null_move(s));
         // Reset stats.

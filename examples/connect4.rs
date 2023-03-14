@@ -86,7 +86,7 @@ impl Display for Board {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Place {
-    col: u8,
+    pub col: u8,
 }
 
 impl Place {
