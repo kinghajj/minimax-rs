@@ -446,7 +446,7 @@ where
             return None;
         }
         // Cancel any ongoing background processing.
-        self.background_cancel.store(true, Ordering::SeqCst);
+        self.background_cancel.store(true, Ordering::Relaxed);
         // Start timer if configured.
         let timeout = if self.max_time == Duration::new(0, 0) {
             Arc::new(AtomicBool::new(false))
@@ -517,6 +517,6 @@ where
 
 impl<E: Evaluator> Drop for ParallelSearch<E> {
     fn drop(&mut self) {
-        self.background_cancel.store(true, Ordering::SeqCst);
+        self.background_cancel.store(true, Ordering::Relaxed);
     }
 }

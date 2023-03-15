@@ -244,7 +244,7 @@ impl<M: Copy> ConcurrentTable<M> for RacyTable<M> {
     }
 
     fn concurrent_advance_generation(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -271,7 +271,7 @@ impl<M: Copy> Table<M> for LockfreeTable<M> {
     fn lookup(&self, hash: u64) -> Option<Entry<M>> {
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
-        let table_hash = entry.high_hash.load(Ordering::SeqCst);
+        let table_hash = entry.high_hash.load(Ordering::Acquire);
         if high_bits(hash) | 1 == table_hash | 1 {
             // Copy contents
             let ret = Some(Entry {
@@ -329,9 +329,10 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
         let table_gen = self.generation.load(Ordering::Relaxed);
         let index = (hash as usize) & self.mask;
         let entry = &self.table[index];
+        // TODO: some not-totally racy reads of generation and depth
         if entry.generation != table_gen || entry.depth <= depth {
             // Set hash to sentinel value during write.
-            let x = entry.high_hash.load(Ordering::SeqCst);
+            let x = entry.high_hash.load(Ordering::Acquire);
             if x == Self::WRITING_SENTINEL {
                 // Someone's already writing, just forget it.
                 return;
@@ -342,7 +343,7 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
                 .compare_exchange_weak(
                     x,
                     Self::WRITING_SENTINEL,
-                    Ordering::SeqCst,
+                    Ordering::Acquire,
                     Ordering::Relaxed,
                 )
                 .is_err()
@@ -370,12 +371,12 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
             } else {
                 high_bits(hash)
             };
-            entry.high_hash.store(new_hash, Ordering::SeqCst);
+            entry.high_hash.store(new_hash, Ordering::Release);
         }
     }
 
     fn concurrent_advance_generation(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 }
 
