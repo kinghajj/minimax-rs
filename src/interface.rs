@@ -65,6 +65,14 @@ pub trait Evaluator {
     }
 }
 
+pub trait UniEval {
+    /// The type of game that can be evaluated.
+    type G: UniGame;
+    /// Evaluate the non-terminal state from the persective of the player to
+    /// move next.
+    fn evaluate(&self, s: &<Self::G as UniGame>::S) -> Evaluation;
+}
+
 /// Defines how a move affects the game state.
 ///
 /// A move is able to change initial `Game` state, as well as revert the state.
@@ -221,6 +229,10 @@ pub trait UniGame {
     fn max_table_index() -> u16 {
         0
     }
+}
+
+pub trait UniStrat<G: UniGame> {
+    fn choose_move(&mut self, state: &G::S) -> Option<G::M>;
 }
 
 /// Defines a method of choosing a move for the current player.

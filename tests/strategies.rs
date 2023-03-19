@@ -80,6 +80,118 @@ where
     }
 }
 
+pub struct UniNegamax<E: UniEval> {
+    depth: u8,
+    root_value: Evaluation,
+    // All moves tied with the best valuation.
+    best_moves: Vec<<E::G as UniGame>::M>,
+    eval: E,
+}
+
+impl<E: UniEval> UniNegamax<E> {
+    pub fn new(eval: E, depth: u8) -> UniNegamax<E> {
+        UniNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), eval }
+    }
+
+    fn negamax(&self, s: &mut <E::G as UniGame>::S, depth: u8) -> Evaluation
+    where
+        <<E as UniEval>::G as UniGame>::M: Copy,
+    {
+        if let Some(winner) = E::G::get_winner(s) {
+            return winner.evaluate();
+        }
+        if depth == 0 {
+            return self.eval.evaluate(s);
+        }
+        let mut moves = Vec::new();
+        <E as UniEval>::G::generate_moves(s, &mut moves);
+        let mut best = WORST_EVAL;
+        for m in moves.iter() {
+            {
+                let mut x = <E as UniEval>::G::apply(s, &m);
+                let mut new = x.as_mut().unwrap_or(s);
+                let value = -self.negamax(&mut new, depth - 1);
+                best = max(best, value);
+            }
+            <E as UniEval>::G::undo(s, m);
+        }
+        best
+    }
+}
+
+impl<E: UniEval> UniStrat<E::G> for UniNegamax<E>
+where
+    <E::G as UniGame>::S: Clone,
+    <E::G as UniGame>::M: Copy,
+{
+    fn choose_move(&mut self, s: &<E::G as UniGame>::S) -> Option<<E::G as UniGame>::M> {
+        let mut moves = Vec::new();
+        E::G::generate_moves(s, &mut moves);
+
+        self.best_moves.clear();
+        let mut best_value = WORST_EVAL;
+        let mut s_clone = s.clone();
+        for &m in moves.iter() {
+            let value = {
+                let s = &mut s_clone;
+                let mut x = <E as UniEval>::G::apply(s, &m);
+                let mut new = x.as_mut().unwrap_or(s);
+                -self.negamax(&mut new, self.depth - 1)
+            };
+            <E as UniEval>::G::undo(&mut s_clone, &m);
+            if value == best_value {
+                self.best_moves.push(m);
+            } else if value > best_value {
+                best_value = value;
+                self.best_moves.clear();
+                self.best_moves.push(m);
+            }
+        }
+        self.root_value = best_value;
+        self.best_moves.first().map(|m| *m)
+    }
+}
+
+#[derive(Copy, Clone)]
+struct TugBoard(i8);
+#[derive(Copy, Clone)]
+struct TugMove(i8);
+struct TugGame;
+
+impl minimax::UniGame for TugGame {
+    type S = TugBoard;
+    type M = TugMove;
+
+    fn generate_moves(_b: &TugBoard, moves: &mut Vec<TugMove>) {
+        moves.push(TugMove(1));
+        moves.push(TugMove(-1));
+    }
+
+    fn apply(b: &mut TugBoard, m: &TugMove) -> Option<TugBoard> {
+        Some(TugBoard(b.0 + m.0))
+    }
+
+    fn get_winner(_b: &TugBoard) -> Option<minimax::Winner> {
+        None
+    }
+}
+
+#[derive(Clone)]
+struct UniRandom;
+
+impl Default for UniRandom {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+impl minimax::UniEval for UniRandom {
+    type G = TugGame;
+    fn evaluate(&self, b: &TugBoard) -> minimax::Evaluation {
+        b.0 as minimax::Evaluation
+    }
+}
+
 #[derive(Clone)]
 struct RandomEvaluator;
 
