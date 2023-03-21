@@ -107,14 +107,14 @@ pub(super) trait Table<M: Copy> {
 
     // After finishing a search, populate the principal variation as deep as
     // the table remembers it.
-    fn populate_pv<G: Game>(&self, pv: &mut Vec<M>, s: &mut G::S)
+    fn populate_pv<G: Game<M = M>>(&self, pv: &mut Vec<M>, state: &G::S)
     where
-        M: Move<G = G>,
-        <G as Game>::S: Zobrist,
+        G::S: Clone,
     {
         pv.clear();
         let mut hash_history = Vec::new();
-        let mut hash = s.zobrist_hash();
+        let mut state = state.clone();
+        let mut hash = G::zobrist_hash(&state);
         while let Some(entry) = self.lookup(hash) {
             // The principal variation should only have exact nodes, as other
             // node types are from cutoffs where the node is proven to be
@@ -126,17 +126,15 @@ pub(super) trait Table<M: Copy> {
             // equivalent upper and lower bounds.
             let m = entry.best_move.unwrap();
             pv.push(m);
-            m.apply(s);
-            hash = s.zobrist_hash();
+            if let Some(new_state) = G::apply(&mut state, &m) {
+                state = new_state;
+            }
+            hash = G::zobrist_hash(&state);
             // Prevent cyclical PVs from being infinitely long.
             if hash_history.contains(&hash) {
                 break;
             }
             hash_history.push(hash);
-        }
-        // Restore state.
-        for m in pv.iter().rev() {
-            m.undo(s);
         }
     }
 }
@@ -381,16 +379,19 @@ impl<M: Copy> ConcurrentTable<M> for LockfreeTable<M> {
 }
 
 // A single-threaded utility to find moves that have done well in other branches.
-pub(super) struct CounterMoves<M: Move> {
+pub(super) struct CounterMoves<G: Game> {
     countermove_enabled: bool,
     history_enabled: bool,
     // For a given move index, which followup most recently led to a beta cutoff?
-    countermove_table: Vec<M>,
+    countermove_table: Vec<G::M>,
     // For each move index, how many beta cutoffs has it produced?
     history_table: Vec<u32>,
 }
 
-impl<M: Move + Eq + Copy> CounterMoves<M> {
+impl<G: Game> CounterMoves<G>
+where
+    G::M: Eq + Copy,
+{
     pub(super) fn new(countermove_enabled: bool, history_enabled: bool) -> Self {
         Self {
             countermove_enabled,
@@ -400,38 +401,38 @@ impl<M: Move + Eq + Copy> CounterMoves<M> {
         }
     }
 
-    pub(super) fn reorder(&self, prev: Option<M>, moves: &mut [M]) {
+    pub(super) fn reorder(&self, prev: Option<G::M>, moves: &mut [G::M]) {
         if !self.history_table.is_empty() {
             // Stable sort to preserve previous orderings.
-            moves.sort_by_key(|m| !self.history_table[m.table_index() as usize]);
+            moves.sort_by_key(|m| !self.history_table[G::table_index(m) as usize]);
         }
         if let Some(prev) = prev {
-            if let Some(response) = self.countermove_table.get(prev.table_index() as usize) {
+            if let Some(response) = self.countermove_table.get(G::table_index(&prev) as usize) {
                 move_to_front(*response, moves);
             }
         }
     }
 
-    pub(super) fn update(&mut self, prev: Option<M>, m: M) {
+    pub(super) fn update(&mut self, prev: Option<G::M>, m: G::M) {
         if let Some(prev) = prev {
-            if let Some(entry) = self.countermove_table.get_mut(prev.table_index() as usize) {
+            if let Some(entry) = self.countermove_table.get_mut(G::table_index(&prev) as usize) {
                 *entry = m;
             }
         }
-        if let Some(entry) = self.history_table.get_mut(m.table_index() as usize) {
+        if let Some(entry) = self.history_table.get_mut(G::table_index(&m) as usize) {
             *entry = 1u32.saturating_add(*entry);
         }
     }
 
-    pub(super) fn advance_generation(&mut self, null_move: Option<M>) {
+    pub(super) fn advance_generation(&mut self, null_move: Option<G::M>) {
         // Lazily allocate tables
         if self.countermove_enabled && self.countermove_table.is_empty() {
             if let Some(m) = null_move {
-                self.countermove_table = vec![m; M::max_table_index() as usize + 1];
+                self.countermove_table = vec![m; G::max_table_index() as usize + 1];
             }
         }
         if self.history_enabled && self.history_table.is_empty() {
-            self.history_table = vec![0; M::max_table_index() as usize + 1];
+            self.history_table = vec![0; G::max_table_index() as usize + 1];
         }
 
         // Partially degrade old values, to bias towards new data.

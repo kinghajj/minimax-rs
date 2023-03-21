@@ -72,13 +72,13 @@ struct ParallelNegamaxer<E: Evaluator> {
     timeout: Arc<AtomicBool>,
     stats: ThreadLocal<CachePadded<Stats>>,
     move_pool: ThreadLocal<MovePool<<E::G as Game>::M>>,
-    countermoves: ThreadLocal<CounterMoves<<E::G as Game>::M>>,
+    countermoves: ThreadLocal<CounterMoves<E::G>>,
     pv: Mutex<Vec<<E::G as Game>::M>>,
 }
 
 impl<E: Evaluator> ParallelNegamaxer<E>
 where
-    <E::G as Game>::S: Clone + Zobrist + Send + Sync,
+    <E::G as Game>::S: Clone + Send + Sync,
     <E::G as Game>::M: Copy + Eq + Send + Sync,
     E: Clone + Sync + Send + 'static,
 {
@@ -119,9 +119,9 @@ where
 	      self.eval.evaluate(s) >= beta
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
-                null_move.apply(s);
-                let value = -self.negamax(s, None, depth - depth_reduction, -beta, -beta + 1)?;
-                null_move.undo(s);
+                let mut nulled = AppliedMove::<E::G>::new(s, null_move);
+                let value =
+                    -self.negamax(&mut nulled, None, depth - depth_reduction, -beta, -beta + 1)?;
                 // is the result still so good that we shouldn't bother with a full search?
                 if value >= beta {
                     return Some(value);
@@ -155,10 +155,9 @@ where
         }
 
         let mut best = WORST_EVAL;
-        for m in moves.iter() {
-            m.apply(s);
-            let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
-            m.undo(s);
+        for &m in moves.iter() {
+            let mut new = AppliedMove::<E::G>::new(s, m);
+            let value = -self.noisy_negamax(&mut new, depth - 1, -beta, -alpha)?;
             best = max(best, value);
             alpha = max(alpha, value);
             if alpha >= beta {
@@ -175,7 +174,7 @@ where
         mut alpha: Evaluation, mut beta: Evaluation,
     ) -> Option<Evaluation>
     where
-        <E::G as Game>::S: Clone + Zobrist + Send + Sync,
+        <E::G as Game>::S: Clone + Send + Sync,
         <E::G as Game>::M: Copy + Eq + Send + Sync,
         E: Sync,
     {
@@ -195,7 +194,7 @@ where
         }
 
         let alpha_orig = alpha;
-        let hash = s.zobrist_hash();
+        let hash = E::G::zobrist_hash(s);
         let mut good_move = None;
         if let Some(value) = self.table.check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
             return Some(value);
@@ -216,7 +215,7 @@ where
 
         // Reorder moves.
         if depth >= self.opts.min_reorder_moves_depth {
-            self.eval.reorder_moves(s, &mut moves);
+            // TODO: reorder moves
         }
         self.countermoves.local_do(|cm| cm.reorder(prev_move, &mut moves));
         if let Some(good) = good_move {
@@ -226,9 +225,10 @@ where
         let first_move = moves[0];
 
         // Evaluate first move serially.
-        first_move.apply(s);
-        let initial_value = -self.negamax(s, Some(first_move), depth - 1, -beta, -alpha)?;
-        first_move.undo(s);
+        let initial_value = {
+            let mut new = AppliedMove::<E::G>::new(s, first_move);
+            -self.negamax(&mut new, Some(first_move), depth - 1, -beta, -alpha)?
+        };
         alpha = max(alpha, initial_value);
         let (best, best_move) = if alpha >= beta {
             // Skip search
@@ -239,19 +239,18 @@ where
             let mut best_move = first_move;
             let mut null_window = false;
             for &m in moves[1..].iter() {
-                m.apply(s);
+                let mut new = AppliedMove::<E::G>::new(s, m);
                 let value = if null_window {
-                    let probe = -self.negamax(s, Some(m), depth - 1, -alpha - 1, -alpha)?;
+                    let probe = -self.negamax(&mut new, Some(m), depth - 1, -alpha - 1, -alpha)?;
                     if probe > alpha && probe < beta {
                         // Full search fallback.
-                        -self.negamax(s, Some(m), depth - 1, -beta, -probe)?
+                        -self.negamax(&mut new, Some(m), depth - 1, -beta, -probe)?
                     } else {
                         probe
                     }
                 } else {
-                    -self.negamax(s, Some(m), depth - 1, -beta, -alpha)?
+                    -self.negamax(&mut new, Some(m), depth - 1, -beta, -alpha)?
                 };
-                m.undo(s);
                 if value > best {
                     best = value;
                     best_move = m;
@@ -280,11 +279,11 @@ where
                 }
 
                 let mut state = s.clone();
-                m.apply(&mut state);
+                let mut new = AppliedMove::<E::G>::new(&mut state, m);
                 let value = if self.opts.null_window_search && initial_alpha > alpha_orig {
                     // TODO: send reference to alpha as neg_beta to children.
                     let probe = -self.negamax(
-                        &mut state,
+                        &mut new,
                         Some(m),
                         depth - 1,
                         -initial_alpha - 1,
@@ -296,12 +295,12 @@ where
                             return None;
                         }
                         // Full search fallback.
-                        -self.negamax(&mut state, Some(m), depth - 1, -beta, -probe)?
+                        -self.negamax(&mut new, Some(m), depth - 1, -beta, -probe)?
                     } else {
                         probe
                     }
                 } else {
-                    -self.negamax(&mut state, Some(m), depth - 1, -beta, -initial_alpha)?
+                    -self.negamax(&mut new, Some(m), depth - 1, -beta, -initial_alpha)?
                 };
 
                 alpha.fetch_max(value, Ordering::SeqCst);
@@ -327,7 +326,7 @@ where
         &self, mut state: <E::G as Game>::S, max_depth: u8, background: bool,
     ) -> Option<(<E::G as Game>::M, Evaluation)> {
         self.table.concurrent_advance_generation();
-        let root_hash = state.zobrist_hash();
+        let root_hash = E::G::zobrist_hash(&state);
         let mut best_move = None;
         let mut best_value = 0;
         let mut interval_start;
@@ -372,9 +371,9 @@ where
 
             depth += self.opts.step_increment;
             let mut pv_moves = Vec::new();
-            self.table.populate_pv(&mut pv_moves, &mut state);
+            self.table.populate_pv::<E::G>(&mut pv_moves, &state);
             self.pv.lock().unwrap().clone_from(&pv_moves);
-            pv = pv_string::<E::G>(&pv_moves[..], &mut state);
+            pv = pv_string::<E::G>(&pv_moves[..], &state);
             if unclamp_value(entry.value).abs() == BEST_EVAL {
                 break;
             }
@@ -439,7 +438,7 @@ impl<E: Evaluator> ParallelSearch<E> {
 
 impl<E: Evaluator> Strategy<E::G> for ParallelSearch<E>
 where
-    <E::G as Game>::S: Clone + Zobrist + Send + Sync,
+    <E::G as Game>::S: Clone + Send + Sync,
     <E::G as Game>::M: Copy + Eq + Send + Sync,
     E: Clone + Sync + Send + 'static,
 {
@@ -493,7 +492,9 @@ where
                 &self.thread_pool,
             );
             let mut state = s.clone();
-            best_move.apply(&mut state);
+            if let Some(new_state) = E::G::apply(&mut state, &best_move) {
+                state = new_state;
+            }
             // Launch in threadpool asynchronously.
             self.thread_pool.spawn(move || {
                 negamaxer.iterative_search(state, 99, true);

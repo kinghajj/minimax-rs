@@ -296,7 +296,7 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
     #[cfg(target_arch = "wasm32")]
     timeout_counter: u32,
     pub(super) table: T,
-    pub(super) countermoves: CounterMoves<<E::G as Game>::M>,
+    pub(super) countermoves: CounterMoves<E::G>,
     move_pool: MovePool<<E::G as Game>::M>,
     eval: E,
 
@@ -306,7 +306,6 @@ pub(super) struct Negamaxer<E: Evaluator, T> {
 
 impl<E: Evaluator, T: Table<<E::G as Game>::M>> Negamaxer<E, T>
 where
-    <E::G as Game>::S: Zobrist,
     <E::G as Game>::M: Copy + Eq,
 {
     pub(super) fn new(table: T, eval: E, opts: IterativeOptions) -> Self {
@@ -376,9 +375,9 @@ where
 	      self.eval.evaluate(s) >= beta
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
-                null_move.apply(s);
-                let value = -self.negamax(s, None, depth - depth_reduction, -beta, -beta + 1)?;
-                null_move.undo(s);
+                let mut nulled = AppliedMove::<E::G>::new(s, null_move);
+                let value =
+                    -self.negamax(&mut nulled, None, depth - depth_reduction, -beta, -beta + 1)?;
                 // is the result still so good that we shouldn't bother with a full search?
                 if value >= beta {
                     return Some(value);
@@ -412,9 +411,8 @@ where
 
         let mut best = WORST_EVAL;
         for m in moves.iter() {
-            m.apply(s);
-            let value = -self.noisy_negamax(s, depth - 1, -beta, -alpha)?;
-            m.undo(s);
+            let mut new = AppliedMove::<E::G>::new(s, *m);
+            let value = -self.noisy_negamax(&mut new, depth - 1, -beta, -alpha)?;
             best = max(best, value);
             alpha = max(alpha, value);
             if alpha >= beta {
@@ -446,7 +444,7 @@ where
         }
 
         let alpha_orig = alpha;
-        let hash = s.zobrist_hash();
+        let hash = E::G::zobrist_hash(s);
         let mut good_move = None;
         if let Some(value) = self.table.check(hash, depth, &mut good_move, &mut alpha, &mut beta) {
             return Some(value);
@@ -471,7 +469,7 @@ where
 
         // Reorder moves.
         if depth >= self.opts.min_reorder_moves_depth {
-            self.eval.reorder_moves(s, &mut moves);
+            // TODO reorder moves
         }
         self.countermoves.reorder(prev_move, &mut moves);
         if let Some(good) = good_move {
@@ -482,19 +480,18 @@ where
         let mut best_move = moves[0];
         let mut null_window = false;
         for &m in moves.iter() {
-            m.apply(s);
+            let mut new = AppliedMove::<E::G>::new(s, m);
             let value = if null_window {
-                let probe = -self.negamax(s, Some(m), depth - 1, -alpha - 1, -alpha)?;
+                let probe = -self.negamax(&mut new, Some(m), depth - 1, -alpha - 1, -alpha)?;
                 if probe > alpha && probe < beta {
                     // Full search fallback.
-                    -self.negamax(s, Some(m), depth - 1, -beta, -probe)?
+                    -self.negamax(&mut new, Some(m), depth - 1, -beta, -probe)?
                 } else {
                     probe
                 }
             } else {
-                -self.negamax(s, Some(m), depth - 1, -beta, -alpha)?
+                -self.negamax(&mut new, Some(m), depth - 1, -beta, -alpha)?
             };
-            m.undo(s);
             if value > best {
                 best = value;
                 best_move = m;
@@ -537,15 +534,14 @@ where
         let mut alpha = WORST_EVAL;
         let beta = BEST_EVAL;
         for value_move in moves.iter_mut() {
-            value_move.m.apply(s);
-            let value = -self.negamax(s, Some(value_move.m), depth - 1, -beta, -alpha)?;
-            value_move.m.undo(s);
+            let mut new = AppliedMove::<E::G>::new(s, value_move.m);
+            let value = -self.negamax(&mut new, Some(value_move.m), depth - 1, -beta, -alpha)?;
 
             alpha = max(alpha, value);
             value_move.value = value;
         }
         moves.sort_by_key(|vm| -vm.value);
-        self.table.update(s.zobrist_hash(), alpha, beta, depth, moves[0].value, moves[0].m);
+        self.table.update(E::G::zobrist_hash(s), alpha, beta, depth, moves[0].value, moves[0].m);
         Some(moves[0].value)
     }
 }
@@ -570,7 +566,7 @@ pub struct IterativeSearch<E: Evaluator> {
 impl<E: Evaluator> IterativeSearch<E>
 where
     <E::G as Game>::M: Copy + Eq,
-    <E::G as Game>::S: Clone + Zobrist,
+    <E::G as Game>::S: Clone,
 {
     pub fn new(eval: E, opts: IterativeOptions) -> IterativeSearch<E> {
         let table = TranspositionTable::new(opts.table_byte_size, opts.strategy);
@@ -634,7 +630,7 @@ where
 
 impl<E: Evaluator> Strategy<E::G> for IterativeSearch<E>
 where
-    <E::G as Game>::S: Clone + Zobrist,
+    <E::G as Game>::S: Clone,
     <E::G as Game>::M: Copy + Eq,
 {
     fn choose_move(&mut self, s: &<E::G as Game>::S) -> Option<<E::G as Game>::M> {
@@ -651,7 +647,7 @@ where
         // Start timer if configured.
         self.negamaxer.reset_timeout(self.max_time);
 
-        let root_hash = s.zobrist_hash();
+        let root_hash = E::G::zobrist_hash(s);
         let mut s_clone = s.clone();
         let mut best_move = None;
         let mut interval_start;
@@ -723,7 +719,7 @@ where
             self.negamaxer.stats.nodes_explored = 0;
             self.prev_value = entry.value;
             depth += self.opts.step_increment;
-            self.negamaxer.table.populate_pv(&mut self.pv, &mut s_clone);
+            self.negamaxer.table.populate_pv::<E::G>(&mut self.pv, &s_clone);
             if unclamp_value(entry.value).abs() == BEST_EVAL {
                 break;
             }

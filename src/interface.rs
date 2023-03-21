@@ -6,7 +6,7 @@
 pub type Evaluation = i16;
 
 // These definitions ensure that they negate to each other, but it leaves
-// i32::MIN as a valid value less than WORST_EVAL. Don't use this value, and
+// i16::MIN as a valid value less than WORST_EVAL. Don't use this value, and
 // any Strategy will panic when it tries to negate it.
 
 /// An absolutely wonderful outcome, e.g. a win.
@@ -41,61 +41,7 @@ pub trait Evaluator {
         // immediately.
     }
 
-    /// After generating moves, reorder them to explore the most promising first.
-    /// The default implementation evaluates all thes game states and sorts highest Evaluation first.
-    fn reorder_moves(&self, s: &mut <Self::G as Game>::S, moves: &mut [<Self::G as Game>::M])
-    where
-        <Self::G as Game>::M: Copy,
-    {
-        let mut evals = Vec::with_capacity(moves.len());
-        for &m in moves.iter() {
-            m.apply(s);
-            let eval = if let Some(winner) = Self::G::get_winner(s) {
-                -winner.evaluate()
-            } else {
-                -self.evaluate(s)
-            };
-            evals.push((eval, m));
-            m.undo(s);
-        }
-        evals.sort_by_key(|eval| eval.0);
-        for (m, eval) in moves.iter_mut().zip(evals) {
-            *m = eval.1;
-        }
-    }
-}
-
-pub trait UniEval {
-    /// The type of game that can be evaluated.
-    type G: UniGame;
-    /// Evaluate the non-terminal state from the persective of the player to
-    /// move next.
-    fn evaluate(&self, s: &<Self::G as UniGame>::S) -> Evaluation;
-}
-
-/// Defines how a move affects the game state.
-///
-/// A move is able to change initial `Game` state, as well as revert the state.
-/// This allows the game tree to be searched with a constant amount of space.
-pub trait Move {
-    /// The type of game that the move affects.
-    type G: Game;
-    /// Change the state of `S` so that the move is applied.
-    fn apply(&self, state: &mut <Self::G as Game>::S);
-    /// Revert the state of `S` so that the move is undone.
-    fn undo(&self, state: &mut <Self::G as Game>::S);
-    /// Return a human-readable notation for this move in this game state.
-    fn notation(&self, _state: &<Self::G as Game>::S) -> Option<String> {
-        None
-    }
-    /// Return a small index for this move for position-independent tables.
-    fn table_index(&self) -> u16 {
-        0
-    }
-    /// Maximum index value.
-    fn max_table_index() -> u16 {
-        0
-    }
+    // TODO reorder moves by assigning value to each state and combining with countermoves table etc.
 }
 
 /// The result of playing a game until it finishes.
@@ -123,46 +69,15 @@ impl Winner {
     }
 }
 
-/// An optional trait for game state types to support hashing.
-///
-/// Strategies that cache things by game state require this.
-pub trait Zobrist {
-    /// Hash of the game position.
-    ///
-    /// Expected to be pre-calculated and cheaply updated with each apply or
-    /// undo.
-    fn zobrist_hash(&self) -> u64;
-}
-
 /// Defines the rules for a two-player, perfect-knowledge game.
 ///
 /// A game ties together types for the state and moves, generates the possible
 /// moves from a particular state, and determines whether a state is terminal.
+///
+/// This is meant to be defined on an empty newtype so that a game engine can
+/// be implemented in a separate crate without having to know about these
+/// `minimax` traits.
 pub trait Game: Sized {
-    /// The type of the game state.
-    type S;
-    /// The type of game moves.
-    type M: Move<G = Self>;
-
-    /// Generate moves at the given state.
-    fn generate_moves(state: &Self::S, moves: &mut Vec<Self::M>);
-
-    /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
-    /// `Some(Draw)` if the state is terminal without a winner, and `None` if
-    /// the state is non-terminal.
-    fn get_winner(state: &Self::S) -> Option<Winner>;
-
-    /// Optional method to return a move that does not change the board state.
-    /// This does not need to be a legal move from this position, but it is
-    /// used in some strategies to reject a position early if even passing gives
-    /// a good position for the opponent.
-    fn null_move(_state: &Self::S) -> Option<Self::M> {
-        None
-    }
-}
-
-/// An alternate system for defining a game.
-pub trait UniGame {
     /// The type of the game state.
     type S;
     /// The type of game moves.
@@ -172,7 +87,10 @@ pub trait UniGame {
     fn generate_moves(state: &Self::S, moves: &mut Vec<Self::M>);
 
     /// Apply a move to get a new state.
-    /// This method supports two different implementation strategies:
+    ///
+    /// If the method returns a new state, the caller should use that. If the
+    /// method returns None, the caller should use the original.
+    /// This enables two different implementation strategies:
     ///
     /// 1) Games with large state that want to update in place.
     /// ```
@@ -196,6 +114,8 @@ pub trait UniGame {
     /// }
     /// ```
     fn apply(state: &mut Self::S, m: &Self::M) -> Option<Self::S>;
+
+    /// Undo mutation done in apply, if any.
     fn undo(_state: &mut Self::S, _m: &Self::M) {}
 
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
@@ -229,10 +149,6 @@ pub trait UniGame {
     fn max_table_index() -> u16 {
         0
     }
-}
-
-pub trait UniStrat<G: UniGame> {
-    fn choose_move(&mut self, state: &G::S) -> Option<G::M>;
 }
 
 /// Defines a method of choosing a move for the current player.

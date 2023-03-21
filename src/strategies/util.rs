@@ -1,4 +1,5 @@
 use super::super::interface::*;
+use super::super::util::AppliedMove;
 
 // For values near winning and losing values, push them slightly closer to zero.
 // A win in 3 moves (BEST-3) will be chosen over a win in 5 moves (BEST-5).
@@ -25,39 +26,32 @@ pub(super) fn unclamp_value(value: Evaluation) -> Evaluation {
 }
 
 // Return a unique id for humans for this move.
-pub(super) fn move_id<G: Game>(s: &mut <G as Game>::S, m: Option<<G as Game>::M>) -> String
-where
-    <G as Game>::S: Zobrist,
-{
+pub(super) fn move_id<G: Game>(s: &mut <G as Game>::S, m: Option<<G as Game>::M>) -> String {
     if let Some(mov) = m {
-        if let Some(notation) = mov.notation(s) {
-            notation
-        } else {
-            mov.apply(s);
-            let id = format!("{:06x}", s.zobrist_hash() & 0xffffff);
-            mov.undo(s);
-            id
-        }
+        G::notation(s, &mov).unwrap_or_else(|| {
+            let new = AppliedMove::<G>::new(s, mov);
+            format!("{:06x}", G::zobrist_hash(&new) & 0xffffff)
+        })
     } else {
         "none".to_string()
     }
 }
 
-pub(super) fn pv_string<G: Game>(path: &[<G as Game>::M], s: &mut <G as Game>::S) -> String
+pub(super) fn pv_string<G: Game>(path: &[<G as Game>::M], state: &<G as Game>::S) -> String
 where
-    <G as Game>::S: Zobrist,
     <G as Game>::M: Copy,
+    <G as Game>::S: Clone,
 {
+    let mut state = state.clone();
     let mut out = String::new();
     for (i, m) in (0..).zip(path.iter()) {
         if i > 0 {
             out.push_str("; ");
         }
-        out.push_str(move_id::<G>(s, Some(*m)).as_str());
-        m.apply(s);
-    }
-    for m in path.iter().rev() {
-        m.undo(s);
+        out.push_str(move_id::<G>(&mut state, Some(*m)).as_str());
+        if let Some(new_state) = G::apply(&mut state, m) {
+            state = new_state;
+        }
     }
     out
 }

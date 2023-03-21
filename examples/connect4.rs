@@ -52,12 +52,6 @@ impl Default for Board {
     }
 }
 
-impl minimax::Zobrist for Board {
-    fn zobrist_hash(&self) -> u64 {
-        self.hash
-    }
-}
-
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let red_pieces =
@@ -92,29 +86,6 @@ pub struct Place {
 impl Place {
     fn col_shift(&self) -> u32 {
         self.col as u32 * HEIGHT
-    }
-}
-
-impl minimax::Move for Place {
-    type G = Game;
-    fn apply(&self, b: &mut Board) {
-        let col = (b.all_pieces >> self.col_shift()) & COL_MASK;
-        let new_piece = (col + 1) << self.col_shift();
-        // Swap colors
-        b.pieces_to_move ^= b.all_pieces;
-        b.all_pieces |= new_piece;
-        b.num_moves += 1;
-        b.update_hash(new_piece);
-    }
-
-    fn undo(&self, b: &mut Board) {
-        let col = (b.all_pieces >> self.col_shift()) & COL_MASK;
-        let prev_piece = (col ^ (col >> 1)) << self.col_shift();
-        b.all_pieces &= !prev_piece;
-        // Swap colors
-        b.pieces_to_move ^= b.all_pieces;
-        b.update_hash(prev_piece);
-        b.num_moves -= 1;
     }
 }
 
@@ -155,6 +126,22 @@ impl minimax::Game for Game {
         } else {
             None
         }
+    }
+
+    fn apply(b: &mut Board, place: &Place) -> Option<Board> {
+        let mut b = b.clone();
+        let col = (b.all_pieces >> place.col_shift()) & COL_MASK;
+        let new_piece = (col + 1) << place.col_shift();
+        // Swap colors
+        b.pieces_to_move ^= b.all_pieces;
+        b.all_pieces |= new_piece;
+        b.num_moves += 1;
+        b.update_hash(new_piece);
+        Some(b)
+    }
+
+    fn zobrist_hash(b: &Board) -> u64 {
+        b.hash
     }
 }
 
@@ -291,7 +278,7 @@ fn main() {
             Some(m) => {
                 let color = if b.reds_move() { "Red" } else { "Yellow" };
                 println!("{} piece in column {}", color, m.col + 1);
-                m.apply(&mut b)
+                b = self::Game::apply(&mut b, &m).unwrap();
             }
             None => break,
         }

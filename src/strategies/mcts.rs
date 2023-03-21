@@ -1,4 +1,5 @@
 use super::super::interface::*;
+use super::super::util::AppliedMove;
 use super::sync_util::*;
 
 use rand::seq::SliceRandom;
@@ -202,7 +203,9 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             moves.clear();
             G::generate_moves(&state, &mut moves);
             let m = moves.choose(&mut rng).unwrap();
-            m.apply(&mut state);
+            if let Some(new_state) = G::apply(&mut state, m) {
+                state = new_state;
+            }
             sign = -sign;
             depth -= 1;
         }
@@ -246,9 +249,8 @@ impl<G: Game> MonteCarloTreeSearch<G> {
         // Recurse.
         let next = node.best_child(1.).unwrap();
         let m = next.m.as_ref().unwrap();
-        m.apply(state);
-        let result = -self.simulate(next, state, force_rollout)?;
-        m.undo(state);
+        let mut new = AppliedMove::<G>::new(state, *m);
+        let result = -self.simulate(next, &mut new.get().clone(), force_rollout)?;
 
         // Backpropagate.
         node.update_stats(result)

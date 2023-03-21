@@ -4,12 +4,48 @@
 extern crate rayon;
 
 use super::interface;
-use super::interface::{Game, Move};
+use super::interface::Game;
 
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use std::default::Default;
 use std::time::Instant;
+
+pub(crate) struct AppliedMove<'a, G: Game> {
+    old: &'a mut <G as Game>::S,
+    new: Option<<G as Game>::S>,
+    m: <G as Game>::M,
+}
+
+impl<'a, G: Game> std::ops::Deref for AppliedMove<'a, G> {
+    type Target = <G as Game>::S;
+    fn deref(&self) -> &<G as Game>::S {
+        self.new.as_ref().unwrap_or(self.old)
+    }
+}
+
+impl<'a, G: Game> std::ops::DerefMut for AppliedMove<'a, G> {
+    fn deref_mut(&mut self) -> &mut <G as Game>::S {
+        self.new.as_mut().unwrap_or(self.old)
+    }
+}
+
+impl<'a, G: Game> Drop for AppliedMove<'a, G> {
+    fn drop(&mut self) {
+        <G as Game>::undo(self.old, &self.m)
+    }
+}
+
+impl<'a, G: Game> AppliedMove<'a, G> {
+    pub(crate) fn new(old: &'a mut <G as Game>::S, m: <G as Game>::M) -> Self {
+        let new = G::apply(old, &m);
+        AppliedMove { old, new, m }
+    }
+
+    pub(crate) fn get(&mut self) -> &mut <G as Game>::S {
+        self.new.as_mut().unwrap_or(self.old)
+    }
+}
 
 /// Play a complete, new game with players using the two provided strategies.
 ///
@@ -28,7 +64,11 @@ where
     while G::get_winner(&state).is_none() {
         let strategy = &mut strategies[s];
         match strategy.choose_move(&state) {
-            Some(m) => m.apply(&mut state),
+            Some(m) => {
+                if let Some(new_state) = G::apply(&mut state, &m) {
+                    state = new_state;
+                }
+            }
             None => break,
         }
         s = 1 - s;
@@ -83,10 +123,9 @@ where
     } else if depth <= single_thread_cutoff {
         // Single-thread recurse.
         let mut count = 0;
-        for m in moves.iter() {
-            m.apply(state);
-            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
-            m.undo(state);
+        for &m in moves.iter() {
+            let mut new = AppliedMove::<G>::new(state, m);
+            count += perft_recurse::<G>(pool, &mut new, depth - 1, single_thread_cutoff);
         }
         count
     } else {
@@ -94,11 +133,13 @@ where
         moves
             .par_iter()
             .with_max_len(1)
-            .map(|&m| {
-                let mut state2 = state.clone();
+            .map(|m| {
+                let mut state = state.clone();
                 let mut pool2 = MovePool::<G::M>::default();
-                m.apply(&mut state2);
-                perft_recurse::<G>(&mut pool2, &mut state2, depth - 1, single_thread_cutoff)
+                if let Some(new_state) = G::apply(&mut state, m) {
+                    state = new_state;
+                }
+                perft_recurse::<G>(&mut pool2, &mut state, depth - 1, single_thread_cutoff)
             })
             .sum()
     };
@@ -129,9 +170,8 @@ where
         // Single-thread recurse.
         let mut count = 0;
         for m in moves.iter() {
-            m.apply(state);
+            let mut new = AppliedMove::<G>::new(&mut state, m);
             count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
-            m.undo(state);
         }
         count
     };

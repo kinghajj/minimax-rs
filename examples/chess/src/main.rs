@@ -1,64 +1,39 @@
 extern crate chess;
 extern crate minimax;
 
-use minimax::{Game, Move, Strategy};
+use chess::{Board, BoardStatus, ChessMove, MoveGen};
+use minimax::{Game, Strategy};
 
 struct Chess;
-
-// Using newtypes to get external chess impl to implement minimax traits.
-#[derive(Clone)]
-struct Board {
-    history: Vec<chess::Board>,
-}
-#[derive(Copy, Clone, Eq, PartialEq)]
-struct ChessMove(chess::ChessMove);
-
-impl Board {
-    fn new() -> Self {
-        Self { history: vec![chess::Board::default()] }
-    }
-    fn board(&self) -> &chess::Board {
-        self.history.last().unwrap()
-    }
-}
-
-impl minimax::Zobrist for Board {
-    fn zobrist_hash(&self) -> u64 {
-        self.board().get_hash()
-    }
-}
 
 impl minimax::Game for Chess {
     type S = Board;
     type M = ChessMove;
 
     fn generate_moves(b: &Board, moves: &mut Vec<ChessMove>) {
-        for m in chess::MoveGen::new_legal(b.board()) {
-            moves.push(ChessMove(m));
+        for m in MoveGen::new_legal(b) {
+            moves.push(m);
         }
     }
 
     fn get_winner(b: &Board) -> Option<minimax::Winner> {
-        match b.board().status() {
-            chess::BoardStatus::Ongoing => None,
-            chess::BoardStatus::Stalemate => Some(minimax::Winner::Draw),
-            chess::BoardStatus::Checkmate => Some(minimax::Winner::PlayerJustMoved),
+        match b.status() {
+            BoardStatus::Ongoing => None,
+            BoardStatus::Stalemate => Some(minimax::Winner::Draw),
+            BoardStatus::Checkmate => Some(minimax::Winner::PlayerJustMoved),
         }
     }
-}
 
-impl minimax::Move for ChessMove {
-    type G = Chess;
-    fn apply(&self, b: &mut Board) {
-        b.history.push(b.board().make_move_new(self.0));
+    fn apply(b: &mut Board, m: &ChessMove) -> Option<Board> {
+        Some(b.make_move_new(*m))
     }
 
-    fn undo(&self, b: &mut Board) {
-        b.history.pop();
+    fn zobrist_hash(b: &Board) -> u64 {
+        b.get_hash()
     }
 
-    fn notation(&self, _b: &Board) -> Option<String> {
-        Some(format!("{}", self.0))
+    fn notation(_b: &Board, m: &ChessMove) -> Option<String> {
+        Some(format!("{}", m))
     }
 }
 
@@ -67,8 +42,7 @@ struct Evaluator;
 
 impl minimax::Evaluator for Evaluator {
     type G = Chess;
-    fn evaluate(&self, b: &Board) -> minimax::Evaluation {
-        let board = b.board();
+    fn evaluate(&self, board: &Board) -> minimax::Evaluation {
         let mut score = 0;
         for sq in 0..64 {
             let sq = unsafe { chess::Square::new(sq) };
@@ -93,16 +67,16 @@ impl minimax::Evaluator for Evaluator {
 }
 
 fn main() {
-    let mut b = Board::new();
+    let mut b = Board::default();
     let opts = minimax::IterativeOptions::new().verbose();
     let mut strategy = minimax::IterativeSearch::new(Evaluator::default(), opts);
     strategy.set_timeout(std::time::Duration::from_secs(1));
     while Chess::get_winner(&b).is_none() {
-        println!("{}", b.board());
+        println!("{}", b);
         match strategy.choose_move(&b) {
-            Some(m) => m.apply(&mut b),
+            Some(m) => b = Chess::apply(&mut b, &m).unwrap(),
             None => break,
         }
     }
-    println!("Checkmate {:?}", b.board().side_to_move());
+    println!("Checkmate {:?}", b.side_to_move());
 }

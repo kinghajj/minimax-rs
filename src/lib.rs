@@ -40,15 +40,9 @@
 //!             None
 //!         }
 //!     }
-//! }
 //!
-//! impl minimax::Move for Tug {
-//!     type G = TugOfWar;
-//!     fn apply(&self, state: &mut War) {
-//!         state.0 += self.0
-//!     }
-//!     fn undo(&self, state: &mut War) {
-//!         state.0 -= self.0
+//!     fn apply(state: &mut War, tug: &Tug) -> Option<War> {
+//!         Some(War(state.0 + tug.0))
 //!     }
 //! }
 //!

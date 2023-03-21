@@ -42,9 +42,8 @@ impl<E: Evaluator> PlainNegamax<E> {
         E::G::generate_moves(s, &mut moves);
         let mut best = WORST_EVAL;
         for m in moves.iter() {
-            m.apply(s);
-            let value = -self.negamax(s, depth - 1);
-            m.undo(s);
+            let mut new = E::G::apply(s, m).unwrap();
+            let value = -self.negamax(&mut new, depth - 1);
             best = max(best, value);
         }
         best
@@ -62,11 +61,10 @@ where
 
         self.best_moves.clear();
         let mut best_value = WORST_EVAL;
-        let mut s_clone = s.clone();
+        let mut s = s.clone();
         for &m in moves.iter() {
-            m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone, self.depth - 1);
-            m.undo(&mut s_clone);
+            let mut new = E::G::apply(&mut s, &m).unwrap();
+            let value = -self.negamax(&mut new, self.depth - 1);
             if value == best_value {
                 self.best_moves.push(m);
             } else if value > best_value {
@@ -77,149 +75,6 @@ where
         }
         self.root_value = best_value;
         self.best_moves.first().map(|m| *m)
-    }
-}
-
-struct AppliedMove<'a, G: UniGame> {
-    old: &'a mut <G as UniGame>::S,
-    new: Option<<G as UniGame>::S>,
-    m: <G as UniGame>::M,
-}
-
-impl<'a, G: UniGame> std::ops::Deref for AppliedMove<'a, G> {
-    type Target = <G as UniGame>::S;
-    fn deref(&self) -> &<G as UniGame>::S {
-        self.new.as_ref().unwrap_or(self.old)
-    }
-}
-
-impl<'a, G: UniGame> std::ops::DerefMut for AppliedMove<'a, G> {
-    fn deref_mut(&mut self) -> &mut <G as UniGame>::S {
-        self.new.as_mut().unwrap_or(self.old)
-    }
-}
-
-impl<'a, G: UniGame> Drop for AppliedMove<'a, G> {
-    fn drop(&mut self) {
-        <G as UniGame>::undo(self.old, &self.m)
-    }
-}
-
-impl<'a, G: UniGame> AppliedMove<'a, G> {
-    fn new(old: &'a mut <G as UniGame>::S, m: <G as UniGame>::M) -> Self {
-        let new = <G as UniGame>::apply(old, &m);
-        AppliedMove { old, new, m }
-    }
-
-    fn get(&mut self) -> &mut <G as UniGame>::S {
-        self.new.as_mut().unwrap_or(self.old)
-    }
-}
-
-pub struct UniNegamax<E: UniEval> {
-    depth: u8,
-    root_value: Evaluation,
-    // All moves tied with the best valuation.
-    best_moves: Vec<<E::G as UniGame>::M>,
-    eval: E,
-}
-
-impl<E: UniEval> UniNegamax<E> {
-    pub fn new(eval: E, depth: u8) -> UniNegamax<E> {
-        UniNegamax { depth: depth, root_value: 0, best_moves: Vec::new(), eval }
-    }
-
-    fn negamax(&self, s: &mut <E::G as UniGame>::S, depth: u8) -> Evaluation
-    where
-        <<E as UniEval>::G as UniGame>::M: Copy,
-    {
-        if let Some(winner) = E::G::get_winner(s) {
-            return winner.evaluate();
-        }
-        if depth == 0 {
-            return self.eval.evaluate(s);
-        }
-        let mut moves = Vec::new();
-        <E as UniEval>::G::generate_moves(s, &mut moves);
-        let mut best = WORST_EVAL;
-        for m in moves.iter() {
-            {
-                let mut new = AppliedMove::<E::G>::new(s, *m);
-                let value = -self.negamax(new.get(), depth - 1);
-                best = max(best, value);
-            }
-        }
-        best
-    }
-}
-
-impl<E: UniEval> UniStrat<E::G> for UniNegamax<E>
-where
-    <E::G as UniGame>::S: Clone,
-    <E::G as UniGame>::M: Copy,
-{
-    fn choose_move(&mut self, s: &<E::G as UniGame>::S) -> Option<<E::G as UniGame>::M> {
-        let mut moves = Vec::new();
-        E::G::generate_moves(s, &mut moves);
-
-        self.best_moves.clear();
-        let mut best_value = WORST_EVAL;
-        let mut s_clone = s.clone();
-        for &m in moves.iter() {
-            let value = {
-                let mut new = AppliedMove::<E::G>::new(&mut s_clone, m);
-                -self.negamax(&mut new, self.depth - 1)
-            };
-            if value == best_value {
-                self.best_moves.push(m);
-            } else if value > best_value {
-                best_value = value;
-                self.best_moves.clear();
-                self.best_moves.push(m);
-            }
-        }
-        self.root_value = best_value;
-        self.best_moves.first().map(|m| *m)
-    }
-}
-
-#[derive(Copy, Clone)]
-struct TugBoard(i8);
-#[derive(Copy, Clone)]
-struct TugMove(i8);
-struct TugGame;
-
-impl minimax::UniGame for TugGame {
-    type S = TugBoard;
-    type M = TugMove;
-
-    fn generate_moves(_b: &TugBoard, moves: &mut Vec<TugMove>) {
-        moves.push(TugMove(1));
-        moves.push(TugMove(-1));
-    }
-
-    fn apply(b: &mut TugBoard, m: &TugMove) -> Option<TugBoard> {
-        Some(TugBoard(b.0 + m.0))
-    }
-
-    fn get_winner(_b: &TugBoard) -> Option<minimax::Winner> {
-        None
-    }
-}
-
-#[derive(Clone)]
-struct UniRandom;
-
-impl Default for UniRandom {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-impl minimax::UniEval for UniRandom {
-    type G = TugGame;
-    fn evaluate(&self, b: &TugBoard) -> minimax::Evaluation {
-        b.0 as minimax::Evaluation
     }
 }
 
@@ -252,10 +107,11 @@ fn generate_random_state(depth: u8) -> connect4::Board {
         let mut moves = Vec::new();
         connect4::Game::generate_moves(&b, &mut moves);
         let m = moves.choose(&mut rng).unwrap();
-        m.apply(&mut b);
-        if connect4::Game::get_winner(&b).is_some() {
+        let next = connect4::Game::apply(&mut b, &m).unwrap();
+        if connect4::Game::get_winner(&next).is_some() {
             // Oops, undo and try again on the next iter.
-            m.undo(&mut b);
+        } else {
+            b = next;
         }
     }
     b
@@ -264,13 +120,13 @@ fn generate_random_state(depth: u8) -> connect4::Board {
 #[test]
 fn test_winning_position() {
     let mut b = connect4::Board::default();
-    connect4::Place { col: 2 }.apply(&mut b);
-    connect4::Place { col: 3 }.apply(&mut b);
-    connect4::Place { col: 2 }.apply(&mut b);
-    connect4::Place { col: 3 }.apply(&mut b);
-    connect4::Place { col: 2 }.apply(&mut b);
-    connect4::Place { col: 3 }.apply(&mut b);
-    connect4::Place { col: 2 }.apply(&mut b);
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
     assert_eq!(Some(Winner::PlayerJustMoved), connect4::Game::get_winner(&b));
 
     // Make sure none of the strategies die when given a winning position.

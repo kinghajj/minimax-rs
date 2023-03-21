@@ -151,6 +151,16 @@ impl minimax::Game for Game {
             None
         }
     }
+
+    fn apply(b: &mut Board, m: &Place) -> Option<Board> {
+        b.squares[m.i as usize] = b.to_move;
+        b.to_move = b.to_move.invert();
+        None
+    }
+    fn undo(b: &mut Board, m: &Place) {
+        b.squares[m.i as usize] = Square::Empty;
+        b.to_move = b.to_move.invert();
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -161,18 +171,6 @@ pub struct Place {
 impl Display for Place {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "@{}", self.i)
-    }
-}
-
-impl minimax::Move for Place {
-    type G = Game;
-    fn apply(&self, b: &mut Board) {
-        b.squares[self.i as usize] = b.to_move;
-        b.to_move = b.to_move.invert();
-    }
-    fn undo(&self, b: &mut Board) {
-        b.squares[self.i as usize] = Square::Empty;
-        b.to_move = b.to_move.invert();
     }
 }
 
@@ -239,7 +237,7 @@ impl minimax::Evaluator for Evaluator {
 
 fn main() {
     use minimax::strategies::negamax::Negamax;
-    use minimax::{Game, Move, Strategy};
+    use minimax::{Game, Strategy};
 
     let mut b = Board::default();
     let mut strategies =
@@ -249,9 +247,9 @@ fn main() {
         println!("{}", b);
         let ref mut strategy = strategies[s];
         match strategy.choose_move(&mut b) {
-            Some(m) => m.apply(&mut b),
+            Some(m) => self::Game::apply(&mut b, &m),
             None => break,
-        }
+        };
         s = 1 - s;
     }
     println!("{}", b);

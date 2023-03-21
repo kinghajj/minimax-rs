@@ -49,9 +49,8 @@ impl<E: Evaluator> Negamax<E> {
         E::G::generate_moves(s, &mut moves);
         let mut best = WORST_EVAL;
         for m in moves.iter() {
-            m.apply(s);
-            let value = -self.negamax(s, depth - 1, -beta, -alpha);
-            m.undo(s);
+            let mut new = AppliedMove::<E::G>::new(s, *m);
+            let value = -self.negamax(&mut new, depth - 1, -beta, -alpha);
             best = max(best, value);
             alpha = max(alpha, value);
             if alpha >= beta {
@@ -86,9 +85,8 @@ where
         let mut s_clone = s.clone();
         for &m in moves.iter() {
             // determine value for this move
-            m.apply(&mut s_clone);
-            let value = -self.negamax(&mut s_clone, self.max_depth - 1, WORST_EVAL, -best);
-            m.undo(&mut s_clone);
+            let mut new = AppliedMove::<E::G>::new(&mut s_clone, m);
+            let value = -self.negamax(&mut new, self.max_depth - 1, WORST_EVAL, -best);
             // Strictly better than any move found so far.
             if value > best {
                 best = value;
