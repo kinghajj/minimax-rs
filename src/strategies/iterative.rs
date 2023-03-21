@@ -661,11 +661,11 @@ where
         let mut moves = moves.into_iter().map(|m| ValueMove::new(0, m)).collect::<Vec<_>>();
 
         // Start at 1 or 2 to hit the max depth.
-        let mut depth = self.max_depth as u8 % self.opts.step_increment;
+        let mut depth = self.max_depth % self.opts.step_increment;
         if depth == 0 {
             depth = self.opts.step_increment;
         }
-        while depth <= self.max_depth as u8 {
+        while depth <= self.max_depth {
             interval_start = Instant::now();
             let search = if self.opts.mtdf {
                 self.mtdf(&mut s_clone, depth, self.prev_value)

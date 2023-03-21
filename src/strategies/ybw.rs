@@ -335,7 +335,7 @@ where
         if depth == 0 {
             depth = self.opts.step_increment;
         }
-        while depth <= max_depth as u8 {
+        while depth <= max_depth {
             interval_start = Instant::now();
             if self.negamax(&mut state, None, depth, WORST_EVAL, BEST_EVAL).is_none() {
                 // Timeout. Return the best move from the previous depth.
