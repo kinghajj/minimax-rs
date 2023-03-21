@@ -123,7 +123,9 @@ where
                 let value = -self.negamax(s, None, depth - depth_reduction, -beta, -beta + 1)?;
                 null_move.undo(s);
                 // is the result still so good that we shouldn't bother with a full search?
-                return Some(value);
+                if value >= beta {
+                    return Some(value);
+                }
             }
         }
         // If we didn't check, return a low value that won't trigger beta cutoff.
