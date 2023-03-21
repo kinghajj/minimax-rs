@@ -44,11 +44,11 @@ where
 {
     let mut state = state.clone();
     let mut out = String::new();
-    for (i, m) in (0..).zip(path.iter()) {
+    for (i, &m) in (0..).zip(path.iter()) {
         if i > 0 {
             out.push_str("; ");
         }
-        out.push_str(move_id::<G>(&mut state, Some(*m)).as_str());
+        out.push_str(move_id::<G>(&mut state, Some(m)).as_str());
         if let Some(new_state) = G::apply(&mut state, m) {
             state = new_state;
         }

@@ -96,11 +96,11 @@ pub trait Game: Sized {
     /// ```
     /// struct BigBoard([u8; 4096]);
     /// struct BigMove(u16);
-    /// fn apply(state: &mut BigBoard, m: &BigMove) -> Option<BigBoard> {
+    /// fn apply(state: &mut BigBoard, m: BigMove) -> Option<BigBoard> {
     ///     state.0[m.0 as usize] += 1;
     ///     None
     /// }
-    /// fn undo(state: &mut BigBoard, m: &BigMove) {
+    /// fn undo(state: &mut BigBoard, m: BigMove) {
     ///     state.0[m.0 as usize] -= 1;
     /// }
     /// ```
@@ -109,14 +109,14 @@ pub trait Game: Sized {
     /// ```
     /// struct SmallBoard(u64);
     /// struct SmallMove(u8);
-    /// fn apply(state: &mut SmallBoard, m: &SmallMove) -> Option<SmallBoard> {
+    /// fn apply(state: &mut SmallBoard, m: SmallMove) -> Option<SmallBoard> {
     ///     Some(SmallBoard(state.0 | (1<<m.0)))
     /// }
     /// ```
-    fn apply(state: &mut Self::S, m: &Self::M) -> Option<Self::S>;
+    fn apply(state: &mut Self::S, m: Self::M) -> Option<Self::S>;
 
     /// Undo mutation done in apply, if any.
-    fn undo(_state: &mut Self::S, _m: &Self::M) {}
+    fn undo(_state: &mut Self::S, _m: Self::M) {}
 
     /// Returns `Some(PlayerJustMoved)` or `Some(PlayerToMove)` if there's a winner,
     /// `Some(Draw)` if the state is terminal without a winner, and `None` if

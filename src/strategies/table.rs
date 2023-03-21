@@ -126,7 +126,7 @@ pub(super) trait Table<M: Copy> {
             // equivalent upper and lower bounds.
             let m = entry.best_move.unwrap();
             pv.push(m);
-            if let Some(new_state) = G::apply(&mut state, &m) {
+            if let Some(new_state) = G::apply(&mut state, m) {
                 state = new_state;
             }
             hash = G::zobrist_hash(&state);

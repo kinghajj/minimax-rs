@@ -203,7 +203,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             moves.clear();
             G::generate_moves(&state, &mut moves);
             let m = moves.choose(&mut rng).unwrap();
-            if let Some(new_state) = G::apply(&mut state, m) {
+            if let Some(new_state) = G::apply(&mut state, *m) {
                 state = new_state;
             }
             sign = -sign;

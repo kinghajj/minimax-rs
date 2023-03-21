@@ -152,12 +152,12 @@ impl minimax::Game for Game {
         }
     }
 
-    fn apply(b: &mut Board, m: &Place) -> Option<Board> {
+    fn apply(b: &mut Board, m: Place) -> Option<Board> {
         b.squares[m.i as usize] = b.to_move;
         b.to_move = b.to_move.invert();
         None
     }
-    fn undo(b: &mut Board, m: &Place) {
+    fn undo(b: &mut Board, m: Place) {
         b.squares[m.i as usize] = Square::Empty;
         b.to_move = b.to_move.invert();
     }
@@ -247,7 +247,7 @@ fn main() {
         println!("{}", b);
         let ref mut strategy = strategies[s];
         match strategy.choose_move(&mut b) {
-            Some(m) => self::Game::apply(&mut b, &m),
+            Some(m) => self::Game::apply(&mut b, m),
             None => break,
         };
         s = 1 - s;

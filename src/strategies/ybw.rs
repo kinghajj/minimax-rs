@@ -492,7 +492,7 @@ where
                 &self.thread_pool,
             );
             let mut state = s.clone();
-            if let Some(new_state) = E::G::apply(&mut state, &best_move) {
+            if let Some(new_state) = E::G::apply(&mut state, best_move) {
                 state = new_state;
             }
             // Launch in threadpool asynchronously.

@@ -32,13 +32,13 @@ impl<'a, G: Game> std::ops::DerefMut for AppliedMove<'a, G> {
 
 impl<'a, G: Game> Drop for AppliedMove<'a, G> {
     fn drop(&mut self) {
-        <G as Game>::undo(self.old, &self.m)
+        <G as Game>::undo(self.old, self.m)
     }
 }
 
 impl<'a, G: Game> AppliedMove<'a, G> {
     pub(crate) fn new(old: &'a mut <G as Game>::S, m: <G as Game>::M) -> Self {
-        let new = G::apply(old, &m);
+        let new = G::apply(old, m);
         AppliedMove { old, new, m }
     }
 
@@ -65,7 +65,7 @@ where
         let strategy = &mut strategies[s];
         match strategy.choose_move(&state) {
             Some(m) => {
-                if let Some(new_state) = G::apply(&mut state, &m) {
+                if let Some(new_state) = G::apply(&mut state, m) {
                     state = new_state;
                 }
             }
@@ -136,7 +136,7 @@ where
             .map(|m| {
                 let mut state = state.clone();
                 let mut pool2 = MovePool::<G::M>::default();
-                if let Some(new_state) = G::apply(&mut state, m) {
+                if let Some(new_state) = G::apply(&mut state, *m) {
                     state = new_state;
                 }
                 perft_recurse::<G>(&mut pool2, &mut state, depth - 1, single_thread_cutoff)
