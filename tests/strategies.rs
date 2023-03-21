@@ -80,6 +80,42 @@ where
     }
 }
 
+struct AppliedMove<'a, G: UniGame> {
+    old: &'a mut <G as UniGame>::S,
+    new: Option<<G as UniGame>::S>,
+    m: <G as UniGame>::M,
+}
+
+impl<'a, G: UniGame> std::ops::Deref for AppliedMove<'a, G> {
+    type Target = <G as UniGame>::S;
+    fn deref(&self) -> &<G as UniGame>::S {
+        self.new.as_ref().unwrap_or(self.old)
+    }
+}
+
+impl<'a, G: UniGame> std::ops::DerefMut for AppliedMove<'a, G> {
+    fn deref_mut(&mut self) -> &mut <G as UniGame>::S {
+        self.new.as_mut().unwrap_or(self.old)
+    }
+}
+
+impl<'a, G: UniGame> Drop for AppliedMove<'a, G> {
+    fn drop(&mut self) {
+        <G as UniGame>::undo(self.old, &self.m)
+    }
+}
+
+impl<'a, G: UniGame> AppliedMove<'a, G> {
+    fn new(old: &'a mut <G as UniGame>::S, m: <G as UniGame>::M) -> Self {
+        let new = <G as UniGame>::apply(old, &m);
+        AppliedMove { old, new, m }
+    }
+
+    fn get(&mut self) -> &mut <G as UniGame>::S {
+        self.new.as_mut().unwrap_or(self.old)
+    }
+}
+
 pub struct UniNegamax<E: UniEval> {
     depth: u8,
     root_value: Evaluation,
@@ -108,12 +144,10 @@ impl<E: UniEval> UniNegamax<E> {
         let mut best = WORST_EVAL;
         for m in moves.iter() {
             {
-                let mut x = <E as UniEval>::G::apply(s, &m);
-                let mut new = x.as_mut().unwrap_or(s);
-                let value = -self.negamax(&mut new, depth - 1);
+                let mut new = AppliedMove::<E::G>::new(s, *m);
+                let value = -self.negamax(new.get(), depth - 1);
                 best = max(best, value);
             }
-            <E as UniEval>::G::undo(s, m);
         }
         best
     }
@@ -133,12 +167,9 @@ where
         let mut s_clone = s.clone();
         for &m in moves.iter() {
             let value = {
-                let s = &mut s_clone;
-                let mut x = <E as UniEval>::G::apply(s, &m);
-                let mut new = x.as_mut().unwrap_or(s);
+                let mut new = AppliedMove::<E::G>::new(&mut s_clone, m);
                 -self.negamax(&mut new, self.depth - 1)
             };
-            <E as UniEval>::G::undo(&mut s_clone, &m);
             if value == best_value {
                 self.best_moves.push(m);
             } else if value > best_value {
