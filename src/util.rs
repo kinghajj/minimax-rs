@@ -41,10 +41,6 @@ impl<'a, G: Game> AppliedMove<'a, G> {
         let new = G::apply(old, m);
         AppliedMove { old, new, m }
     }
-
-    pub(crate) fn get(&mut self) -> &mut <G as Game>::S {
-        self.new.as_mut().unwrap_or(self.old)
-    }
 }
 
 /// Play a complete, new game with players using the two provided strategies.
@@ -169,9 +165,9 @@ where
     } else {
         // Single-thread recurse.
         let mut count = 0;
-        for m in moves.iter() {
-            let mut new = AppliedMove::<G>::new(&mut state, m);
-            count += perft_recurse::<G>(pool, state, depth - 1, single_thread_cutoff);
+        for &m in moves.iter() {
+            let mut new = AppliedMove::<G>::new(state, m);
+            count += perft_recurse::<G>(pool, &mut new, depth - 1, single_thread_cutoff);
         }
         count
     };

@@ -250,7 +250,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
         let next = node.best_child(1.).unwrap();
         let m = next.m.as_ref().unwrap();
         let mut new = AppliedMove::<G>::new(state, *m);
-        let result = -self.simulate(next, &mut new.get().clone(), force_rollout)?;
+        let result = -self.simulate(next, &mut new, force_rollout)?;
 
         // Backpropagate.
         node.update_stats(result)
