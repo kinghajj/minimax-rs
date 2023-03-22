@@ -1,7 +1,8 @@
 //! The `minimax` library provides interfaces for defining two-player
 //! perfect-knowledge games, and strategies for choosing moves.
 //!
-//! Any game can be defined by implementing 2 traits: Game and Move.
+//! Any game can be defined by implementing the Game trait, in terms of a game
+//! state type and a move type.
 //! ```
 //! use minimax::Strategy;
 //!
