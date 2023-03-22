@@ -138,11 +138,11 @@ pub trait Game: Sized {
     }
 
     /// Return a human-readable notation for this move in this game state.
-    fn notation(_state: &Self::S, _move: &Self::M) -> Option<String> {
+    fn notation(_state: &Self::S, _move: Self::M) -> Option<String> {
         None
     }
     /// Return a small index for this move for position-independent tables.
-    fn table_index(_: &Self::M) -> u16 {
+    fn table_index(_: Self::M) -> u16 {
         0
     }
     /// Maximum index value.

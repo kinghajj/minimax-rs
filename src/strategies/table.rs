@@ -404,10 +404,10 @@ where
     pub(super) fn reorder(&self, prev: Option<G::M>, moves: &mut [G::M]) {
         if !self.history_table.is_empty() {
             // Stable sort to preserve previous orderings.
-            moves.sort_by_key(|m| !self.history_table[G::table_index(m) as usize]);
+            moves.sort_by_key(|&m| !self.history_table[G::table_index(m) as usize]);
         }
         if let Some(prev) = prev {
-            if let Some(response) = self.countermove_table.get(G::table_index(&prev) as usize) {
+            if let Some(response) = self.countermove_table.get(G::table_index(prev) as usize) {
                 move_to_front(*response, moves);
             }
         }
@@ -415,11 +415,11 @@ where
 
     pub(super) fn update(&mut self, prev: Option<G::M>, m: G::M) {
         if let Some(prev) = prev {
-            if let Some(entry) = self.countermove_table.get_mut(G::table_index(&prev) as usize) {
+            if let Some(entry) = self.countermove_table.get_mut(G::table_index(prev) as usize) {
                 *entry = m;
             }
         }
-        if let Some(entry) = self.history_table.get_mut(G::table_index(&m) as usize) {
+        if let Some(entry) = self.history_table.get_mut(G::table_index(m) as usize) {
             *entry = 1u32.saturating_add(*entry);
         }
     }

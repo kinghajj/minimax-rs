@@ -32,7 +32,7 @@ impl minimax::Game for Chess {
         b.get_hash()
     }
 
-    fn notation(_b: &Board, m: &ChessMove) -> Option<String> {
+    fn notation(_b: &Board, m: ChessMove) -> Option<String> {
         Some(format!("{}", m))
     }
 }

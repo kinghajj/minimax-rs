@@ -28,7 +28,7 @@ pub(super) fn unclamp_value(value: Evaluation) -> Evaluation {
 // Return a unique id for humans for this move.
 pub(super) fn move_id<G: Game>(s: &mut <G as Game>::S, m: Option<<G as Game>::M>) -> String {
     if let Some(mov) = m {
-        G::notation(s, &mov).unwrap_or_else(|| {
+        G::notation(s, mov).unwrap_or_else(|| {
             let new = AppliedMove::<G>::new(s, mov);
             format!("{:06x}", G::zobrist_hash(&new) & 0xffffff)
         })
