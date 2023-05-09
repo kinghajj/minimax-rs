@@ -319,6 +319,8 @@ where
     fn set_max_depth(&mut self, depth: u8) {
         // Set some arbitrary function of rollouts.
         self.max_time = Duration::default();
-        self.max_rollouts = depth as u32 * 100;
+        self.max_rollouts = 5u32
+            .saturating_pow(depth as u32)
+            .saturating_mul(self.options.rollouts_before_expanding + 1);
     }
 }
