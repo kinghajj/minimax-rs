@@ -1,14 +1,16 @@
 use super::super::interface::*;
 use super::super::util::AppliedMove;
 use super::sync_util::*;
+use super::util::move_id;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
 use std::sync::Arc;
 use std::thread::spawn;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct Node<M> {
     // The Move to get from the parent to here.
@@ -52,7 +54,7 @@ impl<M> Node<M> {
 
     // Choose best child based on UCT.
     fn best_child(&self, exploration_score: f32) -> Option<&Node<M>> {
-        let mut log_visits = (self.visits.load(Ordering::SeqCst) as f32).log2();
+        let mut log_visits = (self.visits.load(SeqCst) as f32).log2();
         // Keep this numerator non-negative.
         if log_visits < 0.0 {
             log_visits = 0.0;
@@ -78,8 +80,8 @@ impl<M> Node<M> {
     }
 
     fn uct_score(&self, exploration_score: f32, log_parent_visits: f32) -> f32 {
-        let visits = self.visits.load(Ordering::Relaxed) as f32;
-        let score = self.score.load(Ordering::Relaxed) as f32;
+        let visits = self.visits.load(Relaxed) as f32;
+        let score = self.score.load(Relaxed) as f32;
         if visits == 0.0 {
             // Avoid NaNs.
             return if exploration_score > 0.0 { f32::INFINITY } else { 0.0 };
@@ -89,8 +91,8 @@ impl<M> Node<M> {
     }
 
     fn update_stats(&self, result: i32) -> Option<i32> {
-        self.visits.fetch_add(1, Ordering::SeqCst);
-        self.score.fetch_add(result, Ordering::SeqCst);
+        self.visits.fetch_add(1, SeqCst);
+        self.score.fetch_add(result, SeqCst);
         // Always return Some, as we aren't timed out.
         Some(result)
     }
@@ -99,6 +101,7 @@ impl<M> Node<M> {
 /// Options for MonteCarloTreeSearch.
 #[derive(Clone)]
 pub struct MCTSOptions {
+    pub verbose: bool,
     max_rollout_depth: u32,
     rollouts_before_expanding: u32,
     // None means use num_cpus.
@@ -108,11 +111,22 @@ pub struct MCTSOptions {
 
 impl Default for MCTSOptions {
     fn default() -> Self {
-        Self { max_rollout_depth: 100, rollouts_before_expanding: 0, num_threads: None }
+        Self {
+            verbose: false,
+            max_rollout_depth: 100,
+            rollouts_before_expanding: 0,
+            num_threads: None,
+        }
     }
 }
 
 impl MCTSOptions {
+    /// Enable verbose print statements after each search.
+    pub fn verbose(mut self) -> Self {
+        self.verbose = true;
+        self
+    }
+
     /// Set a maximum depth for rollouts. Rollouts that reach this depth are
     /// stopped and assigned a Draw value.
     pub fn with_max_rollout_depth(mut self, depth: u32) -> Self {
@@ -216,7 +230,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
     where
         G::S: Clone,
     {
-        if self.timeout.load(Ordering::Relaxed) {
+        if self.timeout.load(Relaxed) {
             return None;
         }
         if force_rollout {
@@ -227,7 +241,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             Some(expansion) => expansion,
             None => {
                 // This is a leaf node.
-                if node.visits.load(Ordering::SeqCst) < self.options.rollouts_before_expanding {
+                if node.visits.load(SeqCst) < self.options.rollouts_before_expanding {
                     // Just rollout from here.
                     return node.update_stats(self.rollout(state));
                 } else {
@@ -264,6 +278,7 @@ where
     G::M: Copy + Send + Sync + 'static,
 {
     fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
+        let start_time = Instant::now();
         let root = Arc::new(Node::<G::M>::new(None));
         root.expansion.try_set(new_expansion::<G>(s));
 
@@ -305,6 +320,38 @@ where
         // Wait for threads.
         for thread in threads {
             thread.join().unwrap();
+        }
+
+        if self.options.verbose {
+            let total_visits = root.visits.load(Relaxed);
+            let duration = Instant::now().duration_since(start_time);
+            let rate = total_visits as f64 / num_threads as f64 / duration.as_secs_f64();
+            eprintln!(
+                "Using {} threads, did {} total simulations with {:.1} rollouts/sec/core",
+                num_threads, total_visits, rate
+            );
+            // Sort moves by visit count, largest first.
+            let mut children = root
+                .expansion
+                .get()?
+                .children
+                .iter()
+                .map(|node| (node.visits.load(Relaxed), node.score.load(Relaxed), node.m))
+                .collect::<Vec<_>>();
+            children.sort_by_key(|t| !t.0);
+
+            // Dump stats about the top 10 nodes.
+            let mut state = s.clone();
+            for (visits, score, m) in children.into_iter().take(10) {
+                // Normalized so all wins is 100%, all draws is 50%, and all losses is 0%.
+                let win_rate = (score as f64 + visits as f64) / (visits as f64 * 2.0);
+                eprintln!(
+                    "{:>6} visits, {:.02}% wins: {}",
+                    visits,
+                    win_rate * 100.0,
+                    move_id::<G>(&mut state, m)
+                );
+            }
         }
 
         let exploration = 0.0; // Just get best node.
