@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
 use std::sync::Arc;
-use std::thread::spawn;
+use std::thread;
 use std::time::{Duration, Instant};
 
 struct Node<M> {
@@ -160,19 +160,6 @@ pub struct MonteCarloTreeSearch<G: Game> {
     game_type: PhantomData<G>,
 }
 
-// derive is broken with PhantomData (https://github.com/rust-lang/rust/issues/26925)
-impl<G: Game> Clone for MonteCarloTreeSearch<G> {
-    fn clone(&self) -> Self {
-        Self {
-            options: self.options.clone(),
-            max_rollouts: self.max_rollouts,
-            max_time: self.max_time,
-            timeout: self.timeout.clone(),
-            game_type: PhantomData,
-        }
-    }
-}
-
 impl<G: Game> MonteCarloTreeSearch<G> {
     pub fn new(options: MCTSOptions) -> Self {
         Self {
@@ -273,13 +260,13 @@ impl<G: Game> MonteCarloTreeSearch<G> {
 
 impl<G: Game> Strategy<G> for MonteCarloTreeSearch<G>
 where
-    G: Send + 'static,
-    G::S: Clone + Send + 'static,
-    G::M: Copy + Send + Sync + 'static,
+    G: Sync,
+    G::S: Clone + Send,
+    G::M: Copy + Sync,
 {
     fn choose_move(&mut self, s: &G::S) -> Option<G::M> {
         let start_time = Instant::now();
-        let root = Arc::new(Node::<G::M>::new(None));
+        let root = Box::new(Node::<G::M>::new(None));
         root.expansion.try_set(new_expansion::<G>(s));
 
         let num_threads = self.options.num_threads.unwrap_or_else(num_cpus::get) as u32;
@@ -295,32 +282,21 @@ where
             timeout_signal(self.max_time)
         };
 
-        let threads = (1..num_threads)
-            .map(|_| {
-                let node = root.clone();
+        thread::scope(|scope| {
+            for i in 0..num_threads {
+                let node = &*root;
+                let mtcs = &*self;
                 let mut state = s.clone();
-                let mcts = self.clone();
-                spawn(move || {
-                    for _ in 0..rollouts_per_thread {
-                        if mcts.simulate(&node, &mut state, false).is_none() {
+                scope.spawn(move || {
+                    let rollouts = rollouts_per_thread + (i < extra) as u32;
+                    for _ in 0..rollouts {
+                        if mtcs.simulate(node, &mut state, false).is_none() {
                             break;
                         }
                     }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let mut state = s.clone();
-        for _ in 0..rollouts_per_thread + extra {
-            if self.simulate(&root, &mut state, false).is_none() {
-                break;
+                });
             }
-        }
-
-        // Wait for threads.
-        for thread in threads {
-            thread.join().unwrap();
-        }
+        });
 
         if self.options.verbose {
             let total_visits = root.visits.load(Relaxed);
