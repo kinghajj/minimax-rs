@@ -91,9 +91,15 @@ impl<M> Node<M> {
         win_ratio + exploration_score * (2.0 * log_parent_visits / visits).sqrt()
     }
 
-    fn update_stats(&self, result: i32) -> Option<i32> {
+    fn pre_update_stats(&self) {
+        // Use a technicque called virtual loss to assume we've lost any
+        // ongoing simulation to bias concurrent threads against exploring it.
         self.visits.fetch_add(1, SeqCst);
-        self.score.fetch_add(result, SeqCst);
+        self.score.fetch_add(-1, SeqCst);
+    }
+
+    fn update_stats(&self, result: i32) -> Option<i32> {
+        self.score.fetch_add(result + 1, SeqCst);
         // Always return Some, as we aren't timed out.
         Some(result)
     }
@@ -275,6 +281,8 @@ impl<G: Game> MonteCarloTreeSearch<G> {
         if self.timeout.load(Relaxed) {
             return None;
         }
+        node.pre_update_stats();
+
         if force_rollout {
             return node.update_stats(self.rollout(state));
         }
