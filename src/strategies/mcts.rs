@@ -3,6 +3,7 @@ use super::super::util::AppliedMove;
 use super::sync_util::*;
 use super::util::move_id;
 
+use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::marker::PhantomData;
@@ -106,7 +107,6 @@ pub struct MCTSOptions {
     rollouts_before_expanding: u32,
     // None means use num_cpus.
     num_threads: Option<usize>,
-    // TODO: rollout_policy
 }
 
 impl Default for MCTSOptions {
@@ -149,47 +149,31 @@ impl MCTSOptions {
     }
 }
 
-/// A strategy that uses random playouts to explore the game tree to decide on the best move.
-/// This can be used without an Evaluator, just using the rules of the game.
-pub struct MonteCarloTreeSearch<G: Game> {
-    // TODO: Evaluator
-    options: MCTSOptions,
-    max_rollouts: u32,
-    max_time: Duration,
-    timeout: Arc<AtomicBool>,
-    game_type: PhantomData<G>,
-}
+/// Advanced random rollout policy for Monte Carlo Tree Search.
+pub trait RolloutPolicy {
+    /// The type of game that can be evaluated.
+    type G: Game;
 
-impl<G: Game> MonteCarloTreeSearch<G> {
-    pub fn new(options: MCTSOptions) -> Self {
-        Self {
-            options,
-            max_rollouts: 0,
-            max_time: Duration::from_secs(5),
-            timeout: Arc::new(AtomicBool::new(false)),
-            game_type: PhantomData,
-        }
-    }
+    /// Custom function to choose random move during rollouts.
+    /// Implementations can bias towards certain moves, ensure winning moves, etc.
+    /// The provided move vec is for scratch space.
+    fn random_move(
+        &self, state: &mut <Self::G as Game>::S, move_scratch: &mut Vec<<Self::G as Game>::M>,
+        rng: &mut ThreadRng,
+    ) -> <Self::G as Game>::M;
 
-    /// Instead of a timeout, run this many rollouts to choose a move.
-    pub fn set_max_rollouts(&mut self, rollouts: u32) {
-        self.max_time = Duration::default();
-        self.max_rollouts = rollouts;
-    }
-
-    // Returns score for this node. +1 for win of original player to move.
-    // TODO: policy options: random, look 1 ahead for winning moves, BYO Evaluator.
-    fn rollout(&self, s: &G::S) -> i32
+    /// Implementation of a rollout over many random moves. Not needed to be overridden.
+    fn rollout(&self, options: &MCTSOptions, state: &<Self::G as Game>::S) -> i32
     where
-        G::S: Clone,
+        <Self::G as Game>::S: Clone,
     {
         let mut rng = rand::thread_rng();
-        let mut depth = self.options.max_rollout_depth;
-        let mut state = s.clone();
+        let mut depth = options.max_rollout_depth;
+        let mut state = state.clone();
         let mut moves = Vec::new();
         let mut sign = 1;
         loop {
-            if let Some(winner) = G::get_winner(&state) {
+            if let Some(winner) = Self::G::get_winner(&state) {
                 return match winner {
                     Winner::PlayerJustMoved => 1,
                     Winner::PlayerToMove => -1,
@@ -202,19 +186,90 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             }
 
             moves.clear();
-            G::generate_moves(&state, &mut moves);
-            let m = moves.choose(&mut rng).unwrap();
-            if let Some(new_state) = G::apply(&mut state, *m) {
+            let m = self.random_move(&mut state, &mut moves, &mut rng);
+            if let Some(new_state) = Self::G::apply(&mut state, m) {
                 state = new_state;
             }
             sign = -sign;
             depth -= 1;
         }
     }
+}
+
+struct DumbRolloutPolicy<G: Game> {
+    game_type: PhantomData<G>,
+}
+
+impl<G: Game> RolloutPolicy for DumbRolloutPolicy<G> {
+    type G = G;
+    fn random_move(
+        &self, state: &mut <Self::G as Game>::S, moves: &mut Vec<<Self::G as Game>::M>,
+        rng: &mut ThreadRng,
+    ) -> <Self::G as Game>::M {
+        G::generate_moves(state, moves);
+        *moves.choose(rng).unwrap()
+    }
+}
+
+/// A strategy that uses random playouts to explore the game tree to decide on the best move.
+/// This can be used without an Evaluator, just using the rules of the game.
+pub struct MonteCarloTreeSearch<G: Game> {
+    options: MCTSOptions,
+    max_rollouts: u32,
+    max_time: Duration,
+    timeout: Arc<AtomicBool>,
+    rollout_policy: Option<Box<dyn RolloutPolicy<G = G> + Sync>>,
+    game_type: PhantomData<G>,
+}
+
+impl<G: Game> MonteCarloTreeSearch<G> {
+    pub fn new(options: MCTSOptions) -> Self {
+        Self {
+            options,
+            max_rollouts: 0,
+            max_time: Duration::from_secs(5),
+            timeout: Arc::new(AtomicBool::new(false)),
+            rollout_policy: None,
+            game_type: PhantomData,
+        }
+    }
+
+    /// Create a searcher with a custom rollout policy. You could bias the
+    /// random move generation to prefer certain kinds of moves, always choose
+    /// winning moves, etc.
+    pub fn new_with_policy(
+        options: MCTSOptions, policy: Box<dyn RolloutPolicy<G = G> + Sync>,
+    ) -> Self {
+        Self {
+            options,
+            max_rollouts: 0,
+            max_time: Duration::from_secs(5),
+            timeout: Arc::new(AtomicBool::new(false)),
+            rollout_policy: Some(policy),
+            game_type: PhantomData,
+        }
+    }
+
+    /// Instead of a timeout, run this many rollouts to choose a move.
+    pub fn set_max_rollouts(&mut self, rollouts: u32) {
+        self.max_time = Duration::default();
+        self.max_rollouts = rollouts;
+    }
+
+    fn rollout(&self, state: &G::S) -> i32
+    where
+        G: Sync,
+        G::S: Clone,
+    {
+        self.rollout_policy.as_ref().map(|p| p.rollout(&self.options, state)).unwrap_or_else(|| {
+            DumbRolloutPolicy::<G> { game_type: PhantomData }.rollout(&self.options, state)
+        })
+    }
 
     // Explore the tree, make a new node, rollout, backpropagate.
     fn simulate(&self, node: &Node<G::M>, state: &mut G::S, mut force_rollout: bool) -> Option<i32>
     where
+        G: Sync,
         G::S: Clone,
     {
         if self.timeout.load(Relaxed) {

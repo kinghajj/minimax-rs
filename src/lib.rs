@@ -73,7 +73,7 @@ pub mod util;
 pub use interface::*;
 pub use strategies::iterative::{IterativeOptions, IterativeSearch, Replacement};
 #[cfg(not(target_arch = "wasm32"))]
-pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch};
+pub use strategies::mcts::{MCTSOptions, MonteCarloTreeSearch, RolloutPolicy};
 pub use strategies::negamax::Negamax;
 pub use strategies::random::Random;
 #[cfg(not(target_arch = "wasm32"))]
