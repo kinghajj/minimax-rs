@@ -13,34 +13,35 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+const WIN: i32 = i32::MAX;
+// Make sure they negate to each other, unlike i32::MIN.
+const LOSS: i32 = -WIN;
+
 struct Node<M> {
     // The Move to get from the parent to here.
     // Only None at the root.
     m: Option<M>,
     visits: AtomicU32,
     // +1 for wins, -1 for losses, +0 for draws.
-    // From perspective of player to move.
+    // From perspective of the player that made this move.
     score: AtomicI32,
+    // Lazily populated if this node guarantees a particular end state.
+    // WIN for a guaranteed win, LOSS for a guaranteed loss.
+    // Not bothering with draws.
+    winner: AtomicI32,
     // Lazily populated.
     expansion: AtomicBox<NodeExpansion<M>>,
 }
 
 struct NodeExpansion<M> {
-    // Populated if this node is an end state.
-    winner: Option<Winner>,
     children: Vec<Node<M>>,
 }
 
 fn new_expansion<G: Game>(state: &G::S) -> Box<NodeExpansion<G::M>> {
-    let winner = G::get_winner(state);
-    let children = if winner.is_some() {
-        Vec::new()
-    } else {
-        let mut moves = Vec::new();
-        G::generate_moves(state, &mut moves);
-        moves.into_iter().map(|m| Node::new(Some(m))).collect::<Vec<_>>()
-    };
-    Box::new(NodeExpansion { winner, children })
+    let mut moves = Vec::new();
+    G::generate_moves(state, &mut moves);
+    let children = moves.into_iter().map(|m| Node::new(Some(m))).collect::<Vec<_>>();
+    Box::new(NodeExpansion { children })
 }
 
 impl<M> Node<M> {
@@ -50,6 +51,7 @@ impl<M> Node<M> {
             expansion: AtomicBox::default(),
             visits: AtomicU32::new(0),
             score: AtomicI32::new(0),
+            winner: AtomicI32::new(0),
         }
     }
 
@@ -81,6 +83,18 @@ impl<M> Node<M> {
     }
 
     fn uct_score(&self, exploration_score: f32, log_parent_visits: f32) -> f32 {
+        let winner = self.winner.load(Relaxed);
+        if winner < 0 {
+            // Large enough to be returned from best_move, smaller than any other value.
+            // This effectively ignores any moves that we've proved guarantee losses.
+            // The MCTS-Solver paper says not to do this, but I don't buy their argument.
+            // Those moves effectivey won't exist in our search, and we'll
+            // have to see if the remaining moves make the parent moves worthwhile.
+            return -1.0;
+        }
+        if winner > 0 {
+            return f32::INFINITY;
+        }
         let visits = self.visits.load(Relaxed) as f32;
         let score = self.score.load(Relaxed) as f32;
         if visits == 0.0 {
@@ -99,7 +113,12 @@ impl<M> Node<M> {
     }
 
     fn update_stats(&self, result: i32) -> Option<i32> {
-        self.score.fetch_add(result + 1, SeqCst);
+        if result == WIN || result == LOSS {
+            self.winner.store(result, SeqCst);
+        } else {
+            // Adjust for virtual loss.
+            self.score.fetch_add(result + 1, SeqCst);
+        }
         // Always return Some, as we aren't timed out.
         Some(result)
     }
@@ -180,9 +199,22 @@ pub trait RolloutPolicy {
         let mut sign = 1;
         loop {
             if let Some(winner) = Self::G::get_winner(&state) {
+                let first = depth == options.max_rollout_depth;
                 return match winner {
-                    Winner::PlayerJustMoved => 1,
-                    Winner::PlayerToMove => -1,
+                    Winner::PlayerJustMoved => {
+                        if first {
+                            WIN
+                        } else {
+                            1
+                        }
+                    }
+                    Winner::PlayerToMove => {
+                        if first {
+                            LOSS
+                        } else {
+                            -1
+                        }
+                    }
                     Winner::Draw => 0,
                 } * sign;
             }
@@ -281,6 +313,10 @@ impl<G: Game> MonteCarloTreeSearch<G> {
         if self.timeout.load(Relaxed) {
             return None;
         }
+        let winner = node.winner.load(Relaxed);
+        if winner != 0 {
+            return Some(winner);
+        }
         node.pre_update_stats();
 
         if force_rollout {
@@ -291,10 +327,17 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             Some(expansion) => expansion,
             None => {
                 // This is a leaf node.
-                if node.visits.load(SeqCst) < self.options.rollouts_before_expanding {
+                if node.visits.load(SeqCst) <= self.options.rollouts_before_expanding {
                     // Just rollout from here.
                     return node.update_stats(self.rollout(state));
                 } else {
+                    // Check for terminal node.
+                    match G::get_winner(state) {
+                        Some(Winner::PlayerJustMoved) => return node.update_stats(WIN),
+                        Some(Winner::PlayerToMove) => return node.update_stats(LOSS),
+                        Some(Winner::Draw) => return node.update_stats(0),
+                        _ => {}
+                    }
                     // Expand this node, and force a rollout when we recurse.
                     force_rollout = true;
                     node.expansion.try_set(new_expansion::<G>(state))
@@ -302,19 +345,30 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             }
         };
 
-        if let Some(winner) = expansion.winner {
-            return node.update_stats(match winner {
-                Winner::PlayerJustMoved => 1,
-                Winner::PlayerToMove => -1,
-                Winner::Draw => 0,
-            });
-        }
-
         // Recurse.
-        let next = node.best_child(1.).unwrap();
+        let next = match node.best_child(1.) {
+            Some(child) => child,
+            // TODO: Weird race condition?
+            None => return Some(0),
+        };
         let m = next.m.as_ref().unwrap();
         let mut new = AppliedMove::<G>::new(state, *m);
-        let result = -self.simulate(next, &mut new, force_rollout)?;
+        let child_result = self.simulate(next, &mut new, force_rollout)?;
+
+        // Propagate up forced wins and losses.
+        let result = if child_result == WIN {
+            // Having a guaranteed win child makes you a loser parent.
+            LOSS
+        } else if child_result == LOSS {
+            // Having all guaranteed loser children makes you a winner parent.
+            if expansion.children.iter().all(|node| node.winner.load(Relaxed) == LOSS) {
+                WIN
+            } else {
+                -1
+            }
+        } else {
+            -child_result
+        };
 
         // Backpropagate.
         node.update_stats(result)

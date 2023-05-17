@@ -57,7 +57,14 @@ where
     let mut state = G::S::default();
     let mut strategies: [&mut dyn interface::Strategy<G>; 2] = [s1, s2];
     let mut s = 0;
-    while G::get_winner(&state).is_none() {
+    loop {
+        if let Some(winner) = G::get_winner(&state) {
+            return match winner {
+                interface::Winner::Draw => None,
+                interface::Winner::PlayerJustMoved => Some(1 - s),
+                interface::Winner::PlayerToMove => Some(s),
+            };
+        }
         let strategy = &mut strategies[s];
         match strategy.choose_move(&state) {
             Some(m) => {
@@ -65,14 +72,9 @@ where
                     state = new_state;
                 }
             }
-            None => break,
+            None => return None,
         }
         s = 1 - s;
-    }
-    match G::get_winner(&state).unwrap() {
-        interface::Winner::Draw => None,
-        interface::Winner::PlayerJustMoved => Some(1 - s),
-        interface::Winner::PlayerToMove => Some(s),
     }
 }
 
