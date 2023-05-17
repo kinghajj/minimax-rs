@@ -65,9 +65,14 @@ impl<M> Node<M> {
 
         let expansion = self.expansion.get()?;
         // Find a node, randomly chosen among the best scores.
-        // TODO: make it more uniformly random?
         let n = expansion.children.len();
-        let mut i = rand::thread_rng().gen_range(0..n);
+        // To make the choice more uniformly random among the best moves,
+        // start at a random offset and stride by a random amount.
+        // The stride must be coprime with n, so pick from a set of large primes.
+        let mut rng = rand::thread_rng();
+        let mut i = rng.gen_range(0..n);
+        static PRIMES: [usize; 8] = [14323, 30553, 50221, 51991, 53201, 64891, 72763, 74471];
+        let stride = PRIMES.choose(&mut rng).unwrap();
         let mut best_score = f32::NEG_INFINITY;
         let mut best_child = None;
         for _ in 0..n {
@@ -77,7 +82,7 @@ impl<M> Node<M> {
                 best_score = score;
                 best_child = Some(&expansion.children[i]);
             }
-            i = (i + 1) % n;
+            i = (i + stride) % n;
         }
         best_child
     }
