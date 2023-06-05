@@ -1,7 +1,7 @@
 use super::super::interface::*;
 use super::super::util::AppliedMove;
 use super::sync_util::*;
-use super::util::move_id;
+use super::util::{move_id, pv_string};
 
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
@@ -262,6 +262,7 @@ pub struct MonteCarloTreeSearch<G: Game> {
     max_time: Duration,
     timeout: Arc<AtomicBool>,
     rollout_policy: Option<Box<dyn RolloutPolicy<G = G> + Sync>>,
+    pv: Vec<G::M>,
     game_type: PhantomData<G>,
 }
 
@@ -273,6 +274,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             rollout_policy: None,
+            pv: Vec::new(),
             game_type: PhantomData,
         }
     }
@@ -289,6 +291,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             max_time: Duration::from_secs(5),
             timeout: Arc::new(AtomicBool::new(false)),
             rollout_policy: Some(policy),
+            pv: Vec::new(),
             game_type: PhantomData,
         }
     }
@@ -420,6 +423,14 @@ where
             }
         });
 
+        // Compute PV.
+        self.pv.clear();
+        let mut node = &*root;
+        while let Some(best) = node.best_child(0.0) {
+            self.pv.push(best.m.unwrap());
+            node = best;
+        }
+
         if self.options.verbose {
             let total_visits = root.visits.load(Relaxed);
             let duration = Instant::now().duration_since(start_time);
@@ -450,6 +461,9 @@ where
                     move_id::<G>(&mut state, m)
                 );
             }
+
+            // Dump PV.
+            eprintln!("Principal variation: {}", pv_string::<G>(&self.pv[..], s));
         }
 
         let exploration = 0.0; // Just get best node.
@@ -467,5 +481,9 @@ where
         self.max_rollouts = 5u32
             .saturating_pow(depth as u32)
             .saturating_mul(self.options.rollouts_before_expanding + 1);
+    }
+
+    fn principal_variation(&self) -> Vec<G::M> {
+        self.pv.clone()
     }
 }
