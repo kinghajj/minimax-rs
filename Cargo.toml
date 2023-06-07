@@ -1,7 +1,7 @@
 [package]
 name = "minimax"
-version = "0.5.1"
-authors = [ "Samuel Fredrickson <samfredrickson@gmail.com>", "Eric Roshan-Eisner <eric.d.eisner@gmail.com>" ]
+version = "0.5.2"
+authors = [ "Eric Roshan-Eisner <eric.d.eisner@gmail.com>", "Samuel Fredrickson <samfredrickson@gmail.com>" ]
 description = "Generic implementations of Minimax."
 documentation = "https://docs.rs/minimax"
 edition = "2021"
