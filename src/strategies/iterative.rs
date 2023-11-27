@@ -687,7 +687,7 @@ where
                                 depth,
                                 interval.as_millis(),
                                 entry.bounds(),
-                                move_id::<E::G>(&mut s_clone, entry.best_move)
+                                move_id::<E::G>(&s_clone, entry.best_move)
                             );
                             interval_start = end;
                         }
@@ -710,7 +710,7 @@ where
                     depth,
                     interval.as_millis(),
                     entry.value_string(),
-                    move_id::<E::G>(&mut s_clone, best_move)
+                    move_id::<E::G>(&s_clone, best_move)
                 );
             }
 

@@ -365,7 +365,7 @@ where
                     depth,
                     interval.as_millis(),
                     entry.value_string(),
-                    move_id::<E::G>(&mut state, best_move)
+                    move_id::<E::G>(&state, best_move)
                 );
             }
 

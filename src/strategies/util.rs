@@ -1,5 +1,4 @@
 use super::super::interface::*;
-use super::super::util::AppliedMove;
 
 // For values near winning and losing values, push them slightly closer to zero.
 // A win in 3 moves (BEST-3) will be chosen over a win in 5 moves (BEST-5).
@@ -26,12 +25,9 @@ pub(super) fn unclamp_value(value: Evaluation) -> Evaluation {
 }
 
 // Return a unique id for humans for this move.
-pub(super) fn move_id<G: Game>(s: &mut <G as Game>::S, m: Option<<G as Game>::M>) -> String {
+pub(super) fn move_id<G: Game>(s: &<G as Game>::S, m: Option<<G as Game>::M>) -> String {
     if let Some(mov) = m {
-        G::notation(s, mov).unwrap_or_else(|| {
-            let new = AppliedMove::<G>::new(s, mov);
-            format!("{:06x}", G::zobrist_hash(&new) & 0xffffff)
-        })
+        G::notation(s, mov).unwrap_or("no notation impl".to_string())
     } else {
         "none".to_string()
     }
@@ -48,7 +44,7 @@ where
         if i > 0 {
             out.push_str("; ");
         }
-        out.push_str(move_id::<G>(&mut state, Some(m)).as_str());
+        out.push_str(move_id::<G>(&state, Some(m)).as_str());
         if let Some(new_state) = G::apply(&mut state, m) {
             state = new_state;
         }

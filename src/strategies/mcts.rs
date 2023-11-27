@@ -450,7 +450,6 @@ where
             children.sort_by_key(|t| !t.0);
 
             // Dump stats about the top 10 nodes.
-            let mut state = s.clone();
             for (visits, score, m) in children.into_iter().take(10) {
                 // Normalized so all wins is 100%, all draws is 50%, and all losses is 0%.
                 let win_rate = (score as f64 + visits as f64) / (visits as f64 * 2.0);
@@ -458,7 +457,7 @@ where
                     "{:>6} visits, {:.02}% wins: {}",
                     visits,
                     win_rate * 100.0,
-                    move_id::<G>(&mut state, m)
+                    move_id::<G>(s, m)
                 );
             }
 
