@@ -1,6 +1,6 @@
 [package]
 name = "minimax"
-version = "0.5.2"
+version = "0.5.3"
 authors = [ "Eric Roshan-Eisner <eric.d.eisner@gmail.com>", "Samuel Fredrickson <samfredrickson@gmail.com>" ]
 description = "Generic implementations of Minimax."
 documentation = "https://docs.rs/minimax"
