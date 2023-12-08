@@ -1,11 +1,10 @@
 use super::super::interface::*;
 use super::super::util::AppliedMove;
 use super::sync_util::*;
-use super::util::{move_id, pv_string};
+use super::util::{move_id, pv_string, random_best};
 
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
-use rand::Rng;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
@@ -64,27 +63,9 @@ impl<M> Node<M> {
         }
 
         let expansion = self.expansion.get()?;
-        // Find a node, randomly chosen among the best scores.
-        let n = expansion.children.len();
-        // To make the choice more uniformly random among the best moves,
-        // start at a random offset and stride by a random amount.
-        // The stride must be coprime with n, so pick from a set of large primes.
-        let mut rng = rand::thread_rng();
-        let mut i = rng.gen_range(0..n);
-        static PRIMES: [usize; 8] = [14323, 30553, 50221, 51991, 53201, 64891, 72763, 74471];
-        let stride = PRIMES.choose(&mut rng).unwrap();
-        let mut best_score = f32::NEG_INFINITY;
-        let mut best_child = None;
-        for _ in 0..n {
-            let score = expansion.children[i].uct_score(exploration_score, log_visits);
-            debug_assert!(!score.is_nan());
-            if score > best_score {
-                best_score = score;
-                best_child = Some(&expansion.children[i]);
-            }
-            i = (i + stride) % n;
-        }
-        best_child
+        random_best(expansion.children.as_slice(), |node| {
+            node.uct_score(exploration_score, log_visits)
+        })
     }
 
     fn uct_score(&self, exploration_score: f32, log_parent_visits: f32) -> f32 {
