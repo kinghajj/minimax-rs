@@ -42,7 +42,7 @@ impl<E: Evaluator> PlainNegamax<E> {
         E::G::generate_moves(s, &mut moves);
         let mut best = WORST_EVAL;
         for &m in moves.iter() {
-            let mut new = E::G::apply(s, m).unwrap();
+            let mut new = E::G::apply(s, &m).unwrap();
             let value = -self.negamax(&mut new, depth - 1);
             best = max(best, value);
         }
@@ -63,7 +63,7 @@ where
         let mut best_value = WORST_EVAL;
         let mut s = s.clone();
         for &m in moves.iter() {
-            let mut new = E::G::apply(&mut s, m).unwrap();
+            let mut new = E::G::apply(&mut s, &m).unwrap();
             let value = -self.negamax(&mut new, self.depth - 1);
             if value == best_value {
                 self.best_moves.push(m);
@@ -107,7 +107,7 @@ fn generate_random_state(depth: u8) -> connect4::Board {
         let mut moves = Vec::new();
         connect4::Game::generate_moves(&b, &mut moves);
         let m = moves.choose(&mut rng).unwrap();
-        let next = connect4::Game::apply(&mut b, *m).unwrap();
+        let next = connect4::Game::apply(&mut b, m).unwrap();
         if connect4::Game::get_winner(&next).is_some() {
             // Oops, undo and try again on the next iter.
         } else {
@@ -120,13 +120,13 @@ fn generate_random_state(depth: u8) -> connect4::Board {
 #[test]
 fn test_winning_position() {
     let mut b = connect4::Board::default();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 2 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 3 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 2 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 3 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 2 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 3 }).unwrap();
-    b = connect4::Game::apply(&mut b, connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 3 }).unwrap();
+    b = connect4::Game::apply(&mut b, &connect4::Place { col: 2 }).unwrap();
     assert_eq!(Some(Winner::PlayerJustMoved), connect4::Game::get_winner(&b));
 
     // Make sure none of the strategies die when given a winning position.

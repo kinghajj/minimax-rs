@@ -43,7 +43,7 @@ impl minimax::Game for Mancala {
         }
     }
 
-    fn apply(board: &mut Board, m: Move) -> Option<Board> {
+    fn apply(board: &mut Board, m: &Move) -> Option<Board> {
         let mut board = board.clone();
         if board.skipped {
             board.skipped = false;
@@ -53,7 +53,7 @@ impl minimax::Game for Mancala {
 
         // Grab the stones.
         let mut player = board.to_move as usize;
-        let mut i = m as usize;
+        let mut i = *m as usize;
         let mut stones = board.pits[player][i];
         board.pits[player][i] = 0;
         // At the beginning of each iteration, it points at the previous pit.
@@ -161,7 +161,7 @@ fn main() {
     while Mancala::get_winner(&board).is_none() {
         println!("{}", board);
         match strategy.choose_move(&board) {
-            Some(m) => board = Mancala::apply(&mut board, m).unwrap(),
+            Some(m) => board = Mancala::apply(&mut board, &m).unwrap(),
             None => break,
         }
     }

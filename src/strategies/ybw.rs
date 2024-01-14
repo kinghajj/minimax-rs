@@ -119,7 +119,7 @@ where
 	      self.eval.evaluate(s) >= beta
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
-                let mut nulled = AppliedMove::<E::G>::new(s, null_move);
+                let mut nulled = AppliedMove::<E::G>::new(s, &null_move);
                 let value =
                     -self.negamax(&mut nulled, None, depth - depth_reduction, -beta, -beta + 1)?;
                 // is the result still so good that we shouldn't bother with a full search?
@@ -156,7 +156,7 @@ where
 
         let mut best = WORST_EVAL;
         for &m in moves.iter() {
-            let mut new = AppliedMove::<E::G>::new(s, m);
+            let mut new = AppliedMove::<E::G>::new(s, &m);
             let value = -self.noisy_negamax(&mut new, depth - 1, -beta, -alpha)?;
             best = max(best, value);
             alpha = max(alpha, value);
@@ -226,7 +226,7 @@ where
 
         // Evaluate first move serially.
         let initial_value = {
-            let mut new = AppliedMove::<E::G>::new(s, first_move);
+            let mut new = AppliedMove::<E::G>::new(s, &first_move);
             -self.negamax(&mut new, Some(first_move), depth - 1, -beta, -alpha)?
         };
         alpha = max(alpha, initial_value);
@@ -239,7 +239,7 @@ where
             let mut best_move = first_move;
             let mut null_window = false;
             for &m in moves[1..].iter() {
-                let mut new = AppliedMove::<E::G>::new(s, m);
+                let mut new = AppliedMove::<E::G>::new(s, &m);
                 let value = if null_window {
                     let probe = -self.negamax(&mut new, Some(m), depth - 1, -alpha - 1, -alpha)?;
                     if probe > alpha && probe < beta {
@@ -279,7 +279,7 @@ where
                 }
 
                 let mut state = s.clone();
-                let mut new = AppliedMove::<E::G>::new(&mut state, m);
+                let mut new = AppliedMove::<E::G>::new(&mut state, &m);
                 let value = if self.opts.null_window_search && initial_alpha > alpha_orig {
                     // TODO: send reference to alpha as neg_beta to children.
                     let probe = -self.negamax(
@@ -492,7 +492,7 @@ where
                 &self.thread_pool,
             );
             let mut state = s.clone();
-            if let Some(new_state) = E::G::apply(&mut state, best_move) {
+            if let Some(new_state) = E::G::apply(&mut state, &best_move) {
                 state = new_state;
             }
             // Launch in threadpool asynchronously.

@@ -42,7 +42,7 @@
 //!         }
 //!     }
 //!
-//!     fn apply(state: &mut War, tug: Tug) -> Option<War> {
+//!     fn apply(state: &mut War, tug: &Tug) -> Option<War> {
 //!         Some(War(state.0 + tug.0))
 //!     }
 //! }

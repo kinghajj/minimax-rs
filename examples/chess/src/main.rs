@@ -24,8 +24,8 @@ impl minimax::Game for Chess {
         }
     }
 
-    fn apply(b: &mut Board, m: ChessMove) -> Option<Board> {
-        Some(b.make_move_new(m))
+    fn apply(b: &mut Board, m: &ChessMove) -> Option<Board> {
+        Some(b.make_move_new(*m))
     }
 
     fn zobrist_hash(b: &Board) -> u64 {
@@ -74,7 +74,7 @@ fn main() {
     while Chess::get_winner(&b).is_none() {
         println!("{}", b);
         match strategy.choose_move(&b) {
-            Some(m) => b = Chess::apply(&mut b, m).unwrap(),
+            Some(m) => b = Chess::apply(&mut b, &m).unwrap(),
             None => break,
         }
     }

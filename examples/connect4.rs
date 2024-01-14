@@ -128,7 +128,7 @@ impl minimax::Game for Game {
         }
     }
 
-    fn apply(b: &mut Board, place: Place) -> Option<Board> {
+    fn apply(b: &mut Board, place: &Place) -> Option<Board> {
         let mut b = b.clone();
         let col = (b.all_pieces >> place.col_shift()) & COL_MASK;
         let new_piece = (col + 1) << place.col_shift();
@@ -278,7 +278,7 @@ fn main() {
             Some(m) => {
                 let color = if b.reds_move() { "Red" } else { "Yellow" };
                 println!("{} piece in column {}", color, m.col + 1);
-                b = self::Game::apply(&mut b, m).unwrap();
+                b = self::Game::apply(&mut b, &m).unwrap();
             }
             None => break,
         }

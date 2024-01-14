@@ -375,7 +375,7 @@ where
 	      self.eval.evaluate(s) >= beta
             {
                 // If we just pass and let the opponent play this position (at reduced depth),
-                let mut nulled = AppliedMove::<E::G>::new(s, null_move);
+                let mut nulled = AppliedMove::<E::G>::new(s, &null_move);
                 let value =
                     -self.negamax(&mut nulled, None, depth - depth_reduction, -beta, -beta + 1)?;
                 // is the result still so good that we shouldn't bother with a full search?
@@ -411,7 +411,7 @@ where
 
         let mut best = WORST_EVAL;
         for m in moves.iter() {
-            let mut new = AppliedMove::<E::G>::new(s, *m);
+            let mut new = AppliedMove::<E::G>::new(s, m);
             let value = -self.noisy_negamax(&mut new, depth - 1, -beta, -alpha)?;
             best = max(best, value);
             alpha = max(alpha, value);
@@ -480,7 +480,7 @@ where
         let mut best_move = moves[0];
         let mut null_window = false;
         for &m in moves.iter() {
-            let mut new = AppliedMove::<E::G>::new(s, m);
+            let mut new = AppliedMove::<E::G>::new(s, &m);
             let value = if null_window {
                 let probe = -self.negamax(&mut new, Some(m), depth - 1, -alpha - 1, -alpha)?;
                 if probe > alpha && probe < beta {
@@ -534,7 +534,7 @@ where
         let mut alpha = WORST_EVAL;
         let beta = BEST_EVAL;
         for value_move in moves.iter_mut() {
-            let mut new = AppliedMove::<E::G>::new(s, value_move.m);
+            let mut new = AppliedMove::<E::G>::new(s, &value_move.m);
             let value = -self.negamax(&mut new, Some(value_move.m), depth - 1, -beta, -alpha)?;
 
             alpha = max(alpha, value);
