@@ -47,7 +47,7 @@ where
             out.push_str("; ");
         }
         out.push_str(move_id::<G>(&state, Some(m)).as_str());
-        if let Some(new_state) = G::apply(&mut state, m) {
+        if let Some(new_state) = G::apply(&mut state, &m) {
             state = new_state;
         }
     }

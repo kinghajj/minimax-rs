@@ -4,7 +4,7 @@ use super::sync_util::*;
 use super::util::{move_id, pv_string, random_best};
 
 use rand::rngs::ThreadRng;
-use rand::seq::SliceRandom;
+use rand::Rng;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
@@ -211,7 +211,7 @@ pub trait RolloutPolicy {
 
             moves.clear();
             let m = self.random_move(&mut state, &mut moves, &mut rng);
-            if let Some(new_state) = Self::G::apply(&mut state, m) {
+            if let Some(new_state) = Self::G::apply(&mut state, &m) {
                 state = new_state;
             }
             sign = -sign;
@@ -231,7 +231,7 @@ impl<G: Game> RolloutPolicy for DumbRolloutPolicy<G> {
         rng: &mut ThreadRng,
     ) -> <Self::G as Game>::M {
         G::generate_moves(state, moves);
-        *moves.choose(rng).unwrap()
+        moves.swap_remove(rng.gen_range(0..moves.len()))
     }
 }
 
@@ -341,7 +341,7 @@ impl<G: Game> MonteCarloTreeSearch<G> {
             None => return Some(0),
         };
         let m = next.m.as_ref().unwrap();
-        let mut new = AppliedMove::<G>::new(state, *m);
+        let mut new = AppliedMove::<G>::new(state, m);
         let child_result = self.simulate(next, &mut new, force_rollout)?;
 
         // Propagate up forced wins and losses.

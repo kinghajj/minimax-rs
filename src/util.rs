@@ -11,35 +11,35 @@ use rayon::prelude::*;
 use std::default::Default;
 use std::time::Instant;
 
-pub(crate) struct AppliedMove<'a, G: Game> {
+pub(crate) struct AppliedMove<'a, 'b, G: Game> {
     old: &'a mut <G as Game>::S,
     new: Option<<G as Game>::S>,
-    m: <G as Game>::M,
+    m: &'b <G as Game>::M,
 }
 
-impl<'a, G: Game> std::ops::Deref for AppliedMove<'a, G> {
+impl<'a, 'b, G: Game> std::ops::Deref for AppliedMove<'a, 'b, G> {
     type Target = <G as Game>::S;
     fn deref(&self) -> &<G as Game>::S {
         self.new.as_ref().unwrap_or(self.old)
     }
 }
 
-impl<'a, G: Game> std::ops::DerefMut for AppliedMove<'a, G> {
+impl<'a, 'b, G: Game> std::ops::DerefMut for AppliedMove<'a, 'b, G> {
     fn deref_mut(&mut self) -> &mut <G as Game>::S {
         self.new.as_mut().unwrap_or(self.old)
     }
 }
 
-impl<'a, G: Game> Drop for AppliedMove<'a, G> {
+impl<'a, 'b, G: Game> Drop for AppliedMove<'a, 'b, G> {
     fn drop(&mut self) {
-        <G as Game>::undo(self.old, self.m)
+        <G as Game>::undo(self.old, &self.m)
     }
 }
 
-impl<'a, G: Game> AppliedMove<'a, G> {
-    pub(crate) fn new(old: &'a mut <G as Game>::S, m: <G as Game>::M) -> Self {
+impl<'a, 'b, G: Game> AppliedMove<'a, 'b, G> {
+    pub(crate) fn new(old: &'a mut <G as Game>::S, m: &'b <G as Game>::M) -> Self {
         let new = G::apply(old, m);
-        AppliedMove { old, new, m }
+        AppliedMove { old, new, m: m }
     }
 }
 
@@ -68,7 +68,7 @@ where
         let strategy = &mut strategies[s];
         match strategy.choose_move(&state) {
             Some(m) => {
-                if let Some(new_state) = G::apply(&mut state, m) {
+                if let Some(new_state) = G::apply(&mut state, &m) {
                     state = new_state;
                 }
             }
@@ -122,7 +122,7 @@ where
         // Single-thread recurse.
         let mut count = 0;
         for &m in moves.iter() {
-            let mut new = AppliedMove::<G>::new(state, m);
+            let mut new = AppliedMove::<G>::new(state, &m);
             count += perft_recurse::<G>(pool, &mut new, depth - 1, single_thread_cutoff);
         }
         count
@@ -134,7 +134,7 @@ where
             .map(|m| {
                 let mut state = state.clone();
                 let mut pool2 = MovePool::<G::M>::default();
-                if let Some(new_state) = G::apply(&mut state, *m) {
+                if let Some(new_state) = G::apply(&mut state, m) {
                     state = new_state;
                 }
                 perft_recurse::<G>(&mut pool2, &mut state, depth - 1, single_thread_cutoff)
